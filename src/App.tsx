@@ -1,6 +1,7 @@
 import { useState } from "react";
 import "./App.css";
 import downloadIcon from "./assets/react.svg"; // 請自行準備或使用 SVG
+import { invoke } from "@tauri-apps/api/core";
 
 // 假設的任務資料結構
 interface Task {
@@ -23,27 +24,34 @@ function App() {
   };
 
   // 處理「新增」按鈕點擊事件
-  const handleAddTask = (e: React.FormEvent) => {
+
+  // 編輯 handleAddTask 函數
+  const handleAddTask = async (e: React.FormEvent) => {
     e.preventDefault();
     if (url.trim() === "") {
-      return; // 如果 URL 為空，則不執行任何操作
+      return;
     }
 
-    // 模擬新增一個任務，實際情況會根據 URL 產生不同資訊
-    const newTask: Task = {
-      id: Date.now(),
-      name: `新增任務 ${tasks.length + 1}`,
-      episode: "1 [1/1]",
-      status: "Completed", // 這裡預設為已完成，之後會連接後端
-      progress: 100,
-      path: "D:\\temp\\",
-    };
+    try {
+      // 使用 invoke 呼叫後端的 download_url 指令
+      const result = await invoke("download_url", { url });
+      console.log("從後端接收到的回傳訊息：", result);
 
-    // 將新任務添加到任務列表中
-    setTasks((prevTasks) => [...prevTasks, newTask]);
-    // 清空輸入框
-    setUrl("");
-    console.log("新增任務成功：", newTask);
+      // 這裡我們修正了 newTask 的 status 屬性
+      const newTask: Task = {
+        id: Date.now(),
+        name: url,
+        episode: "...",
+        status: "Pending", // 這裡將 status 設為 "Pending"
+        progress: 0,
+        path: "D:\\temp\\",
+      };
+
+      setTasks((prevTasks) => [...prevTasks, newTask]);
+      setUrl("");
+    } catch (error) {
+      console.error("呼叫後端指令時發生錯誤：", error);
+    }
   };
 
   // 處理「監控剪貼簿」勾選框的變化
