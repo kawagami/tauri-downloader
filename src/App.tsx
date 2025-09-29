@@ -1,50 +1,105 @@
 import { useState } from "react";
-import reactLogo from "./assets/react.svg";
-import { invoke } from "@tauri-apps/api/core";
 import "./App.css";
 
-function App() {
-  const [greetMsg, setGreetMsg] = useState("");
-  const [name, setName] = useState("");
+// 假設的任務資料結構
+interface Task {
+  id: number;
+  name: string;
+  episode: string;
+  status: "Completed" | "Downloading" | "Pending";
+  progress: number;
+  path: string;
+}
 
-  async function greet() {
-    // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-    setGreetMsg(await invoke("greet", { name }));
-  }
+function App() {
+  const [url, setUrl] = useState("");
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [monitorClipboard, setMonitorClipboard] = useState(false);
+
+  // 模擬新增任務的函數
+  const handleAddTask = () => {
+    if (url) {
+      const newTask: Task = {
+        id: tasks.length + 1,
+        name: "新增任務 " + (tasks.length + 1), // 這裡可以根據URL解析
+        episode: "1 [1/1]",
+        status: "Pending",
+        progress: 0,
+        path: "D:\\temp\\",
+      };
+      setTasks([...tasks, newTask]);
+      setUrl(""); // 清空輸入框
+    }
+  };
 
   return (
-    <main className="container">
-      <h1>Welcome to Tauri + React</h1>
-
-      <div className="row">
-        <a href="https://vite.dev" target="_blank">
-          <img src="/vite.svg" className="logo vite" alt="Vite logo" />
-        </a>
-        <a href="https://tauri.app" target="_blank">
-          <img src="/tauri.svg" className="logo tauri" alt="Tauri logo" />
-        </a>
-        <a href="https://react.dev" target="_blank">
-          <img src={reactLogo} className="logo react" alt="React logo" />
-        </a>
+    <div className="container">
+      {/* 頂部選單 */}
+      <div className="navbar">
+        <div className="navbar-left">
+          <span className="menu-item">選單</span>
+          <span className="menu-item">幫助</span>
+        </div>
       </div>
-      <p>Click on the Tauri, Vite, and React logos to learn more.</p>
 
-      <form
-        className="row"
-        onSubmit={(e) => {
-          e.preventDefault();
-          greet();
-        }}
-      >
+      {/* 輸入與控制區塊 */}
+      <div className="input-section">
         <input
-          id="greet-input"
-          onChange={(e) => setName(e.currentTarget.value)}
-          placeholder="Enter a name..."
+          type="text"
+          className="url-input"
+          placeholder="https://www.wnacg.com/photos-index-aid-323188.html"
+          value={url}
+          onChange={(e) => setUrl(e.target.value)}
         />
-        <button type="submit">Greet</button>
-      </form>
-      <p>{greetMsg}</p>
-    </main>
+        <button className="add-button" onClick={handleAddTask}>
+          新增
+        </button>
+        <div className="checkbox-group">
+          <input
+            type="checkbox"
+            id="monitorClipboard"
+            checked={monitorClipboard}
+            onChange={(e) => setMonitorClipboard(e.target.checked)}
+          />
+          <label htmlFor="monitorClipboard">監控剪貼簿</label>
+        </div>
+      </div>
+
+      {/* 任務列表 */}
+      <div className="task-list-container">
+        <table className="task-table">
+          <thead>
+            <tr>
+              <th>名稱</th>
+              <th>話(集)數</th>
+              <th>狀態</th>
+              <th>指令</th>
+              <th>路徑</th>
+            </tr>
+          </thead>
+          <tbody>
+            {tasks.map((task) => (
+              <tr key={task.id}>
+                <td>{task.name}</td>
+                <td>{task.episode}</td>
+                <td>
+                  <div className={`status-bar status-${task.status.toLowerCase()}`}>
+                    <span>100% [1/1]</span> {/* 這裡可以動態顯示進度 */}
+                  </div>
+                </td>
+                <td>Completed</td> {/* 這裡可以放操作按鈕 */}
+                <td>{task.path}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* 下載按鈕區塊 */}
+      <div className="action-buttons-container">
+        {/* 下載按鈕的 SVG 或圖片 */}
+      </div>
+    </div>
   );
 }
 
