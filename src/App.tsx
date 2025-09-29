@@ -1,5 +1,6 @@
 import { useState } from "react";
 import "./App.css";
+import downloadIcon from "./assets/react.svg"; // 請自行準備或使用 SVG
 
 // 假設的任務資料結構
 interface Task {
@@ -16,88 +17,112 @@ function App() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [monitorClipboard, setMonitorClipboard] = useState(false);
 
-  // 模擬新增任務的函數
-  const handleAddTask = () => {
-    if (url) {
-      const newTask: Task = {
-        id: tasks.length + 1,
-        name: "新增任務 " + (tasks.length + 1), // 這裡可以根據URL解析
-        episode: "1 [1/1]",
-        status: "Pending",
-        progress: 0,
-        path: "D:\\temp\\",
-      };
-      setTasks([...tasks, newTask]);
-      setUrl(""); // 清空輸入框
+  // 處理 URL 輸入框的變化
+  const handleUrlChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setUrl(e.target.value);
+  };
+
+  // 處理「新增」按鈕點擊事件
+  const handleAddTask = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (url.trim() === "") {
+      return; // 如果 URL 為空，則不執行任何操作
     }
+
+    // 模擬新增一個任務，實際情況會根據 URL 產生不同資訊
+    const newTask: Task = {
+      id: Date.now(),
+      name: `新增任務 ${tasks.length + 1}`,
+      episode: "1 [1/1]",
+      status: "Completed", // 這裡預設為已完成，之後會連接後端
+      progress: 100,
+      path: "D:\\temp\\",
+    };
+
+    // 將新任務添加到任務列表中
+    setTasks((prevTasks) => [...prevTasks, newTask]);
+    // 清空輸入框
+    setUrl("");
+    console.log("新增任務成功：", newTask);
+  };
+
+  // 處理「監控剪貼簿」勾選框的變化
+  const handleMonitorChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setMonitorClipboard(e.target.checked);
+    console.log("監控剪貼簿狀態：", e.target.checked);
   };
 
   return (
     <div className="container">
-      {/* 頂部選單 */}
-      <div className="navbar">
-        <div className="navbar-left">
-          <span className="menu-item">選單</span>
-          <span className="menu-item">幫助</span>
+      {/* 頂部導覽列 */}
+      <header className="header">
+        <div className="menu">
+          <span>選單</span>
+          <span>幫助</span>
         </div>
-      </div>
+      </header>
 
-      {/* 輸入與控制區塊 */}
-      <div className="input-section">
-        <input
-          type="text"
-          className="url-input"
-          placeholder="https://www.wnacg.com/photos-index-aid-323188.html"
-          value={url}
-          onChange={(e) => setUrl(e.target.value)}
-        />
-        <button className="add-button" onClick={handleAddTask}>
-          新增
-        </button>
-        <div className="checkbox-group">
-          <input
-            type="checkbox"
-            id="monitorClipboard"
-            checked={monitorClipboard}
-            onChange={(e) => setMonitorClipboard(e.target.checked)}
-          />
-          <label htmlFor="monitorClipboard">監控剪貼簿</label>
-        </div>
-      </div>
+      {/* 主要內容區塊 */}
+      <main className="main-content">
+        {/* URL 輸入與控制區塊 */}
+        <form className="input-section" onSubmit={handleAddTask}>
+          <div className="input-group">
+            <input
+              type="text"
+              placeholder="https://www.wnacg.com/photos-index-aid-323188.html"
+              value={url}
+              onChange={handleUrlChange}
+              className="url-input"
+            />
+            <button type="submit" className="add-button">
+              新增
+            </button>
+          </div>
+          <div className="checkbox-group">
+            <input
+              type="checkbox"
+              id="monitorClipboard"
+              checked={monitorClipboard}
+              onChange={handleMonitorChange}
+            />
+            <label htmlFor="monitorClipboard">監控剪貼簿</label>
+          </div>
+        </form>
 
-      {/* 任務列表 */}
-      <div className="task-list-container">
-        <table className="task-table">
-          <thead>
-            <tr>
-              <th>名稱</th>
-              <th>話(集)數</th>
-              <th>狀態</th>
-              <th>指令</th>
-              <th>路徑</th>
-            </tr>
-          </thead>
-          <tbody>
-            {tasks.map((task) => (
-              <tr key={task.id}>
-                <td>{task.name}</td>
-                <td>{task.episode}</td>
-                <td>
-                  <div className={`status-bar status-${task.status.toLowerCase()}`}>
-                    <span>100% [1/1]</span> {/* 這裡可以動態顯示進度 */}
-                  </div>
-                </td>
-                <td>Completed</td> {/* 這裡可以放操作按鈕 */}
-                <td>{task.path}</td>
+        {/* 任務列表 */}
+        <div className="task-list-container">
+          <table className="task-table">
+            <thead>
+              <tr>
+                <th>名箱</th>
+                <th>話(集)數</th>
+                <th>狀態</th>
+                <th>指令</th>
+                <th>路徑</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+            </thead>
+            <tbody>
+              {tasks.map((task) => (
+                <tr key={task.id}>
+                  <td>{task.name}</td>
+                  <td>{task.episode}</td>
+                  <td>
+                    <div className={`status-bar status-${task.status.toLowerCase()}`}>
+                      {task.progress}% [{task.episode}]
+                    </div>
+                  </td>
+                  <td>{task.status}</td>
+                  <td>{task.path}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </main>
 
-      {/* 下載按鈕區塊 */}
-      <div className="action-buttons-container">
-        {/* 下載按鈕的 SVG 或圖片 */}
+      {/* 右側下載按鈕 */}
+      <div className="side-action-button">
+        <img src={downloadIcon} alt="Download" />
       </div>
     </div>
   );

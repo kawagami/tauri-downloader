@@ -1,41 +1,99 @@
-/* App.css */
+/* src/App.css */
+
+/* 確保所有元素都使用 border-box 模型 */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  background-color: #f0f0f0;
+}
+
+/* 整體容器佈局 */
 .container {
-  display: flex;
-  flex-direction: column;
-  height: 100vh;
+  display: grid;
+  grid-template-areas:
+    "header header header"
+    "main side side";
+  grid-template-rows: auto 1fr;
+  grid-template-columns: 1fr auto auto;
+  min-height: 100vh;
   padding: 10px;
-  background-color: #f0f0f0; /* 背景顏色 */
+  background-color: #f0f0f0;
 }
 
-.navbar {
+/* 頂部標頭 */
+.header {
+  grid-area: header;
+  background-color: #e0f2e0;
+  padding: 10px 20px;
+  border-bottom: 1px solid #ccc;
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  padding: 5px 0;
-  border-bottom: 1px solid #ddd;
 }
 
-.navbar-left .menu-item {
+.menu span {
   margin-right: 20px;
   cursor: pointer;
+  color: #333;
 }
 
+/* 主要內容區塊 */
+.main-content {
+  grid-area: main;
+  display: flex;
+  flex-direction: column;
+  background-color: white;
+  padding: 10px;
+  border: 1px solid #ccc;
+  margin-right: 10px;
+}
+
+/* 輸入區塊 */
 .input-section {
   display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.input-group {
+  display: flex;
+  gap: 10px;
   align-items: center;
-  margin-top: 10px;
-  gap: 10px; /* 控制元素之間的間距 */
 }
 
 .url-input {
-  flex-grow: 1; /* 讓輸入框佔據剩餘空間 */
-  padding: 5px;
+  flex: 1;
+  padding: 8px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
 }
 
+.add-button {
+  padding: 8px 20px;
+  background-color: #4CAF50;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.checkbox-group {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: #555;
+}
+
+/* 任務列表 */
 .task-list-container {
-  flex-grow: 1; /* 讓列表佔據剩餘空間並可滾動 */
+  flex: 1;
   overflow-y: auto;
-  margin-top: 10px;
 }
 
 .task-table {
@@ -43,19 +101,39 @@
   border-collapse: collapse;
 }
 
-.task-table th, .task-table td {
+.task-table th,
+.task-table td {
   border: 1px solid #ccc;
   padding: 8px;
   text-align: left;
 }
 
+/* 狀態列 */
 .status-bar {
-  background-color: #e0e0e0;
-  border-radius: 5px;
-  padding: 2px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  color: white;
+  text-align: center;
 }
 
 .status-completed {
-  background-color: #4CAF50; /* 完成的綠色 */
-  color: white;
+  background-color: #4CAF50;
+  /* 綠色 */
+}
+
+/* 右側按鈕區塊 */
+.side-action-button {
+  grid-area: side;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  background-color: white;
+  border: 1px solid #ccc;
+  padding: 10px;
+}
+
+.side-action-button img {
+  width: 64px;
+  height: 64px;
+  cursor: pointer;
 }

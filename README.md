@@ -8,3 +8,6 @@
     * pnpm tauri dev
 * 打包
     * pnpm tauri build
+
+# 相關討論串
+* https://gemini.google.com/app/834d91e6ce1b4c4b?hl=zh-TW
