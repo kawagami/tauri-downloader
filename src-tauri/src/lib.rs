@@ -6,10 +6,6 @@
 // 引入我們需要的函式庫
 use clipboard::ClipboardContext;
 use clipboard::ClipboardProvider;
-use reqwest;
-use std::fs::File;
-use std::io::Write;
-use std::path::PathBuf;
 
 // 定義 greet 函數
 #[tauri::command]
