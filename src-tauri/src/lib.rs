@@ -1,47 +1,19 @@
-// lib.rs
+// src/lib.rs (調整後)
 
-// 引入 Tauri commands 的說明
-// Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
+// 引入我們定義的模塊
+pub mod commands;
+pub mod download_core;
 
-// 引入我們需要的函式庫
-use clipboard::ClipboardContext;
-use clipboard::ClipboardProvider;
-
-// 定義 greet 函數
-#[tauri::command]
-fn greet(name: &str) -> String {
-    format!("Hello, {}! You've been greeted from Rust!", name)
-}
-
-// 這是我們新增的 download_url 函數
-// 請注意，它必須是 async 函數，因為 reqwest::get() 是一個非同步操作
-#[tauri::command]
-async fn download_url(url: String) -> Result<String, String> {
-    // 這裡我們先不實作下載功能，只印出 URL 來驗證連線
-    println!("從前端接收到的 URL: {}", url);
-    Ok(format!("成功接收 URL: {}", url))
-}
-// 這是新增的 Command：讀取剪貼簿內容
-#[tauri::command]
-fn read_clipboard() -> Result<String, String> {
-    let mut ctx: ClipboardContext = match ClipboardContext::new() {
-        Ok(c) => c,
-        Err(e) => return Err(format!("無法初始化剪貼簿：{}", e)),
-    };
-
-    match ctx.get_contents() {
-        Ok(content) => Ok(content),
-        Err(e) => Err(format!("無法讀取剪貼簿內容：{}", e)),
-    }
-}
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
-            greet,        // 這裡保留原本的 greet 函數
-            download_url, // 將新的 download_url 函數註冊進來
-            read_clipboard
+            // ✨ 註冊 commands.rs 中的函數
+            // 現在需要指定模塊路徑
+            commands::common::greet,
+            commands::network::download_url,  // 來自 network.rs
+            commands::common::read_clipboard  // 來自 common.rs
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
