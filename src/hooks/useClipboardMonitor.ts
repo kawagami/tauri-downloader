@@ -56,6 +56,10 @@ export const useClipboardMonitor = (addTask: AddTaskFunction): UseClipboardMonit
                             console.log("剪貼簿偵測到新的有效 URL，自動新增任務。");
                             // 呼叫外部傳入的 addTask 函數
                             addTask(currentContent);
+
+                            const parseContent = await invoke("process_clipboard_url") as string;
+                            console.log("解析取得 title", parseContent);
+
                         }
 
                         // 更新上一次的內容
