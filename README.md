@@ -9,5 +9,8 @@
 * 打包
     * pnpm tauri build
 
+## 目前預計使用 event 改寫目前監控 clipboard 的方式
+* [tauir doc](https://v2.tauri.app/develop/calling-frontend/#global-events)
+
 # 相關討論串
 * https://gemini.google.com/app/834d91e6ce1b4c4b?hl=zh-TW
