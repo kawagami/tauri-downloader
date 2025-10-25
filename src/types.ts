@@ -6,6 +6,7 @@ export type TaskStatus = "Completed" | "Downloading" | "Pending";
 // 任務資料結構
 export interface Task {
     id: number;
+    url: string;
     name: string;
     episode: string;
     status: TaskStatus;
@@ -19,6 +20,7 @@ export const createNewTaskFromUrl = (url: string): Task => {
     const displayName = url.length > 50 ? url.substring(0, 50) + "..." : url;
     return {
         id: Date.now(), // 使用時間戳作為唯一 ID
+        url: displayName,
         name: displayName,
         episode: "待解析", // 初始狀態
         status: "Pending",

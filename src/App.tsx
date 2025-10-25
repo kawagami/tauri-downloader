@@ -20,7 +20,7 @@ function App() {
     setMonitorClipboard,
     url,
     setUrl
-  } = useClipboardMonitor(addTask);
+  } = useClipboardMonitor(addTask, tasks);
 
   // 2. 處理表單提交 (TaskInputForm 的 onSubmit)
   // 這裡我們建立一個處理函數來橋接 TaskInputForm 的 event 和 addTask 的 string
