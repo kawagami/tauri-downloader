@@ -20,7 +20,7 @@ export const createNewTaskFromUrl = (url: string): Task => {
     const displayName = url.length > 50 ? url.substring(0, 50) + "..." : url;
     return {
         id: Date.now(), // 使用時間戳作為唯一 ID
-        url: displayName,
+        url: url,
         name: displayName,
         episode: "待解析", // 初始狀態
         status: "Pending",
