@@ -1,9 +1,6 @@
 // src/commands/common.rs
 
 use clipboard::{ClipboardContext, ClipboardProvider};
-use reqwest;
-use select::document::Document;
-use select::predicate::{Attr, Descendant, Name};
 use tauri::command;
 use url::Url;
 
@@ -58,55 +55,4 @@ pub fn read_clipboard() -> Result<String, String> {
 
     ctx.get_contents()
         .map_err(|e| format!("Error reading clipboard: {}", e))
-}
-
-#[command]
-pub async fn process_clipboard_url() -> Result<String, String> {
-    let mut ctx: ClipboardContext =
-        ClipboardProvider::new().map_err(|e| format!("Error creating clipboard context: {}", e))?;
-
-    let content = ctx
-        .get_contents()
-        .map_err(|e| format!("Error reading clipboard: {}", e))?;
-
-    // 使用新的輔助函數進行驗證
-    let validated_url = is_valid_wnacg_url(&content)?;
-
-    println!("有效 URL (wnacg 格式): {}", validated_url);
-
-    // 執行 reqwest 請求 (保持不變)
-    let response = reqwest::get(&validated_url) // 注意這裡使用 validated_url
-        .await
-        .map_err(|e| format!("HTTP 請求失敗: {}", e))?;
-
-    // ... (後續的 HTML 解析和結果回傳) ...
-
-    // 返回結果 (省略細節)
-    let body = response
-        .text()
-        .await
-        .map_err(|e| format!("無法讀取回應內容: {}", e))?;
-
-    let document = Document::from(body.as_str());
-
-    let target_h2 = document
-        .find(
-            // 選擇器：尋找 id="bodywrap" 元素底下的 h2 標籤
-            Descendant(
-                Attr("id", "bodywrap"), // 父元素：div id="bodywrap"
-                Name("h2"),             // 子元素：h2
-            ),
-        )
-        .next(); // 只取第一個匹配項
-
-    let extracted_title = target_h2
-        .map(|node| node.text())
-        .unwrap_or_else(|| "無法找到指定標題".to_string());
-
-    // 6. 返回結果
-    Ok(format!(
-        "✅ 成功解析連結！\nURL: {}\n提取標題: {}",
-        validated_url,
-        extracted_title // 使用新提取的標題
-    ))
 }

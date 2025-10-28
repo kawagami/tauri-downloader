@@ -13,7 +13,7 @@ use tauri::{command, AppHandle};
 
 #[command]
 // 函數仍然需要是 async，因為它是 Tauri command
-pub async fn download_url(app_handle: AppHandle, url: String) -> Result<String, String> {
+pub async fn download_url(_app_handle: AppHandle, url: String) -> Result<String, String> {
     println!("Backend: [Network] 接收到下載請求: {}", url);
 
     // 1. 設置下載參數

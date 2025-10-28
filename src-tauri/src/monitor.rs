@@ -2,8 +2,7 @@
 
 use clipboard::ClipboardProvider;
 use reqwest;
-use select::document::Document;
-use select::predicate::{Attr, Descendant, Name};
+use scraper::Selector;
 use std::thread;
 use std::time::Duration;
 use tauri::{AppHandle, Emitter};
@@ -39,30 +38,47 @@ async fn fetch_payload_details(
 
     // 實際應用中，您會解析 HTML 內容來獲取 title 和 image URL/ID
     let html_content = res.text().await?;
+    let document = scraper::Html::parse_document(&html_content);
 
-    let document = Document::from(html_content.as_str());
-
-    let target_h2 = document
-        .find(
-            // 選擇器：尋找 id="bodywrap" 元素底下的 h2 標籤
-            Descendant(
-                Attr("id", "bodywrap"), // 父元素：div id="bodywrap"
-                Name("h2"),             // 子元素：h2
-            ),
-        )
-        .next(); // 只取第一個匹配項
-
-    let extracted_title = target_h2
-        .map(|node| node.text())
+    // --- 1. 抓取 Title (H2 標籤) ---
+    let title_selector = Selector::parse("#bodywrap > h2").unwrap();
+    let title = document
+        .select(&title_selector)
+        .next()
+        .map(|element| element.text().collect::<String>().trim().to_string())
         .unwrap_or_else(|| "無法找到指定標題".to_string());
 
-    let title = extracted_title;
-    let image_id = format!("123456789"); // 替換為實際解析邏
+    // --- 2. 抓取 Image Path (String) ---
+    // 圖片的 CSS 選擇器，我們需要提取 img 標籤的 src 屬性
+    let image_selector = Selector::parse(
+        "#bodywrap > div.grid > div > ul > li:nth-child(1) > div.pic_box.tb > a > img",
+    )
+    .unwrap();
+
+    let image_path = document
+        .select(&image_selector)
+        .next()
+        // 嘗試從 img 元素中提取 'src' 屬性
+        .and_then(|element| element.value().attr("src"))
+        // 將 &str 轉換為 String
+        .map(|src| {
+            // 注意：圖片路徑可能是一個相對路徑（例如 /img/abc.jpg）
+            // 為了完整性，您可以選擇在這裡將其轉換為絕對 URL。
+            // 這裡僅簡單地將其轉換為 String
+            let path = src.to_string();
+            println!("Rust Monitor: 成功提取圖片路徑: {}", path);
+            path
+        })
+        // 如果找不到元素或 src 屬性，則使用預設值
+        .unwrap_or_else(|| {
+            eprintln!("Rust Monitor: 無法找到圖片元素或 src 屬性。");
+            "placeholder.png".to_string() // 使用一個預設或錯誤圖片路徑
+        });
 
     Ok(ClipboardPayload {
         url,
         title,
-        image: image_id,
+        image: image_path, // 使用提取到的圖片路徑 (String)
     })
 }
 

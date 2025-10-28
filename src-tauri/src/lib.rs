@@ -23,7 +23,6 @@ pub fn run() {
             commands::common::greet,
             commands::network::download_url,  // 來自 network.rs
             commands::common::read_clipboard, // 保持舊的命令
-            commands::common::process_clipboard_url  // ✨ 註冊新的命令
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
