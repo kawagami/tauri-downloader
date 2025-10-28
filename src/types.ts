@@ -1,35 +1,47 @@
 // src/types.ts
 
 // 任務的狀態必須是這三種字串之一
-export type TaskStatus = "Completed" | "Downloading" | "Pending";
+export enum TaskStatus {
+    Completed = 'Completed',
+    Downloading = 'Downloading',
+    Pending = 'Pending',
+    // ... 其他狀態
+}
 
 // 任務資料結構
 export interface Task {
     id: number;
     url: string;
     name: string;
-    episode: string;
+    title: string;     // ✨ 新增：從 Rust/reqwest 取得的標題
+    image: string;     // ✨ 新增：從 Rust/reqwest 取得的圖片
     status: TaskStatus;
-    progress: number; // 0 到 100
-    path: string;
 }
 
-// 輔助函數：將 URL 轉換為一個新的 Task 對象
-export const createNewTaskFromUrl = (url: string): Task => {
-    // 限制顯示的名稱長度
-    const displayName = url.length > 50 ? url.substring(0, 50) + "..." : url;
+// 定義一個 Payload 結構來傳遞數據
+export interface TaskPayload {
+    url: string;
+    title: string;
+    image: string;
+}
+
+// 輔助函數：根據所有可用資訊建立新任務
+export const createNewTaskFromPayload = (payload: TaskPayload): Task => {
+    // 這裡的邏輯需要確保 name 欄位可以被適當填充
+    const taskName = payload.title || `Task_${Date.now()}`; // 如果沒有 title，使用 fallback
+
     return {
-        id: Date.now(), // 使用時間戳作為唯一 ID
-        url: url,
-        name: displayName,
-        episode: "待解析", // 初始狀態
-        status: "Pending",
-        progress: 0,
-        path: "D:\\temp\\", // 預設路徑
+        id: Date.now(), // 使用時間戳作為簡單 ID
+        url: payload.url,
+        name: taskName,
+        title: payload.title,
+        image: payload.image,
+        status: TaskStatus.Pending,
     };
 };
 
-// 簡單的 URL 驗證函數
-export const isUrlValid = (text: string): boolean => {
-    return text.startsWith("http://") || text.startsWith("https://");
+// 保持 isUrlValid 函數不變
+export const isUrlValid = (url: string): boolean => {
+    // 您的 URL 驗證邏輯
+    return url.startsWith('http') || url.startsWith('https');
 };
