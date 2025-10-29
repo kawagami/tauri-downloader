@@ -2,25 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { listen, Event } from '@tauri-apps/api/event';
-import { Task } from '../types'; // 假設 Task 在這裡被匯入
-
-// 1. ✨ 定義 ClipboardPayload 的 TypeScript 介面
-// 必須與 Rust 中的 ClipboardPayload 結構一致 (注意：image 在 Rust 中是 u64，這裡用 number)
-interface ClipboardPayload {
-    url: string;
-    title: string;
-    image: string; // 假設 u64 對應到 JS 的 number
-}
-
-// 定義 useTaskManager 導出的 addTask 函數類型
-// 由於 Rust 現在提供更多資訊，建議調整 addTask 以接收完整的 Payload
-// 如果 addTask 只能接收 url，則保持原樣，只傳遞 url。
-type AddTaskFunction = (
-    url: string,
-    title?: string,
-    image?: string
-) => Promise<void>;
-
+import { ClipboardPayload, Task, AddTaskFunction } from '../types';
 
 interface UseClipboardMonitor {
     monitorClipboard: boolean;
@@ -68,10 +50,8 @@ export const useClipboardMonitor = (
                     if (!isAlreadyInList) {
                         console.log("URL 不在列表中，自動新增任務。");
 
-                        // 4. ✨ 呼叫 addTask，傳遞 URL (以及額外資訊，如果 addTask 支援)
-                        // 這裡假設您的 addTask 函數已經更新以接收 title 和 image
-                        addTask(newUrl, payload.title, payload.image);
-
+                        // ⚠️ 修改這裡：直接傳遞整個 payload 物件
+                        addTask(payload);
                     } else {
                         console.log("URL 已在列表中，跳過新增。");
                     }

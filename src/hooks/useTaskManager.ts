@@ -2,20 +2,10 @@
 
 import { useState, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-// 假設從 types.ts 引入了 Task 介面、isUrlValid 函數
-// 注意：我們將不再需要 createNewTaskFromUrl，或者需要大幅修改它。
-import { Task, isUrlValid, createNewTaskFromPayload } from '../types';
+import { Task, isUrlValid, createNewTaskFromPayload, ClipboardPayload, UseTaskManager } from '../types';
 
-// 1. ✨ 修改 UseTaskManager 介面和 addTask 的簽名
-interface UseTaskManager {
-    tasks: Task[];
-    /**
-     * @param url 要新增的下載 URL
-     * @param title 可選：從剪貼簿 payload 取得的標題
-     * @param image 可選：從剪貼簿 payload 取得的圖片ID
-     */
-    addTask: (url: string, title?: string, image?: string) => Promise<void>;
-}
+// 2. ⚠️ 修改 UseTaskManager 介面和 addTask 的簽名
+
 
 export const useTaskManager = (): UseTaskManager => {
     const [tasks, setTasks] = useState<Task[]>([]);
@@ -23,34 +13,37 @@ export const useTaskManager = (): UseTaskManager => {
     /**
      * 處理新增任務的邏輯，會呼叫後端指令。
      */
-    // 2. ✨ 更新 addTask 函數簽名
-    const addTask = useCallback(async (url: string, title?: string, image?: string) => {
+    // 3. ⚠️ 更新 addTask 函數簽名，接受單一 payload 物件
+    const addTask = useCallback(async (payload: ClipboardPayload) => {
+
+        // 4. 從 payload 中解構出屬性
+        const { url, title, image, download_page_href } = payload;
         const taskUrl = url.trim();
 
         // 驗證邏輯不變
-        // 注意：isUrlValid 應該只檢查格式，不依賴 title/image 的存在
         if (!taskUrl || !isUrlValid(taskUrl)) {
             console.warn("URL 無效或為空，無法新增。");
             return;
         }
 
-        // 3. ✨ 使用新的輔助函數來構建任務
-        // 我們將所有資訊傳入，讓輔助函數來處理缺少的欄位（例如手動輸入時缺少 title/image）
+        // 構建任務時，使用傳入的 payload 資訊
         const newTask = createNewTaskFromPayload({
             url: taskUrl,
-            title: title || 'Fetching Title...', // 提供預設值或佔位符
-            image: image || '0', // 提供預設值或佔位符
+            // 剪貼簿傳入的值可能為空，但手動輸入時 title/image 確定為空字串
+            // createNewTaskFromPayload 應該處理提供預設值 'Fetching Title...' 的邏輯
+            title: title || 'Fetching Title...',
+            image: image || '0',
+            download_page_href: download_page_href || '0',
         });
 
-        // 檢查任務是否已存在 (建議用 url 或 image 欄位來檢查重複性，而不是 name)
-        // 由於 title 和 image 可能會變動，我們改用 url 或您認為最穩定的 ID 來檢查
+        // 檢查任務是否已存在 
         if (tasks.some(task => task.url === newTask.url)) {
             console.warn(`任務已存在: ${newTask.url}`);
             return;
         }
 
         try {
-            // 呼叫後端指令，通知 Rust 準備開始下載
+            // 呼叫後端指令，只傳遞 URL (假設後端只處理 URL)
             await invoke("download_url", { url: taskUrl });
 
             // 更新前端的任務清單

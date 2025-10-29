@@ -2,13 +2,14 @@
 
 import React, { useCallback } from "react";
 import "./App.css";
-import downloadIcon from "./assets/react.svg"; // 確保這個路徑正確
+import downloadIcon from "./assets/react.svg";
 
 // 引入自訂 Hooks 和元件
 import { useTaskManager } from './hooks/useTaskManager';
 import { useClipboardMonitor } from './hooks/useClipboardMonitor';
 import { TaskInputForm } from './components/TaskInputForm';
 import { TaskList } from './components/TaskList';
+import { ClipboardPayload } from "./types";
 
 
 function App() {
@@ -26,8 +27,16 @@ function App() {
   // 這裡我們建立一個處理函數來橋接 TaskInputForm 的 event 和 addTask 的 string
   const handleFormSubmit = useCallback((e: React.FormEvent) => {
     e.preventDefault();
-    // 呼叫 addTask，它會使用 url 狀態
-    addTask(url);
+    // ⚠️ 核心修改：構造一個符合 addTask 期望的 ClipboardPayload 物件
+    const payload: ClipboardPayload = {
+      url: url,
+      title: '', // 手動輸入時，沒有標題資訊，傳遞空字串
+      image: '', // 手動輸入時，沒有圖片資訊，傳遞空字串
+      download_page_href: '',
+    };
+
+    // 呼叫 addTask，傳遞 payload 物件
+    addTask(payload);
   }, [addTask, url]);
 
   // 3. 處理監控切換 (TaskInputForm 的 onMonitorChange)

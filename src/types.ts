@@ -16,6 +16,7 @@ export interface Task {
     title: string;     // ✨ 新增：從 Rust/reqwest 取得的標題
     image: string;     // ✨ 新增：從 Rust/reqwest 取得的圖片
     status: TaskStatus;
+    download_page_href: string;
 }
 
 // 定義一個 Payload 結構來傳遞數據
@@ -23,6 +24,25 @@ export interface TaskPayload {
     url: string;
     title: string;
     image: string;
+    download_page_href: string;
+}
+
+export interface ClipboardPayload {
+    url: string;
+    title: string;
+    image: string;
+    download_page_href: string;
+}
+
+export type AddTaskFunction = (payload: ClipboardPayload) => Promise<void>;
+
+export interface UseTaskManager {
+    tasks: Task[];
+    /**
+     * 處理新增任務的邏輯。
+     * @param payload 包含 URL、title 和 image 的單一物件。
+     */
+    addTask: (payload: ClipboardPayload) => Promise<void>;
 }
 
 // 輔助函數：根據所有可用資訊建立新任務
@@ -37,6 +57,7 @@ export const createNewTaskFromPayload = (payload: TaskPayload): Task => {
         title: payload.title,
         image: payload.image,
         status: TaskStatus.Pending,
+        download_page_href: payload.download_page_href,
     };
 };
 

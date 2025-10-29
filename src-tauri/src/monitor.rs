@@ -17,6 +17,7 @@ pub struct ClipboardPayload {
     pub url: String,
     pub title: String, // 依照 url 使用 reqwest get 取得的其一資訊
     pub image: String, // 依照 url 使用 reqwest get 取得的其二資訊
+    pub download_page_href: String,
 }
 
 // 假設您有一個異步函數來獲取額外資訊
@@ -55,7 +56,7 @@ async fn fetch_payload_details(
     )
     .unwrap();
 
-    let image_path = document
+    let image = document
         .select(&image_selector)
         .next()
         // 嘗試從 img 元素中提取 'src' 屬性
@@ -75,11 +76,36 @@ async fn fetch_payload_details(
             "placeholder.png".to_string() // 使用一個預設或錯誤圖片路徑
         });
 
+    // --- 3. ✨ 取得下載頁面的 href ---
+    let download_page_href_selector = Selector::parse("#ads > a").unwrap();
+    let download_page_href_raw = document
+        .select(&download_page_href_selector)
+        .next()
+        .and_then(|element| element.value().attr("href"))
+        .map(|href| href.to_string())
+        .unwrap_or_else(|| {
+            eprintln!("Rust Monitor: 無法找到下載頁面的 href。");
+            "".to_string() // 找不到時使用空字串
+        });
+
+    // 處理下載頁面路徑
+    let download_page_href = prepend_with_format(download_page_href_raw);
+
     Ok(ClipboardPayload {
         url,
         title,
-        image: image_path, // 使用提取到的圖片路徑 (String)
+        image, // 使用提取到的圖片路徑 (String)
+        download_page_href,
     })
+}
+
+fn prepend_with_format(original_url: String) -> String {
+    let prefix = "https://www.wnacg.com";
+
+    // 使用 format! 宏將 prefix 放在 original_url 前面
+    let new_url = format!("{}{}", prefix, original_url);
+
+    new_url
 }
 
 /// 啟動剪貼簿監控線程
