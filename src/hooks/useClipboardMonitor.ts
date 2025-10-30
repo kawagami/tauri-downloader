@@ -36,16 +36,15 @@ export const useClipboardMonitor = (
                 // 2 & 3. ✨ 更改監聽事件名稱和類型
                 unlisten = await listen<ClipboardPayload>('new-valid-url-payload', (event: Event<ClipboardPayload>) => {
                     const payload = event.payload;
-                    const newUrl = payload.url; // 4. 從 payload 中提取 URL
 
-                    console.log(`[Event] 剪貼簿偵測到新的有效 URL: ${newUrl}`);
+                    console.log(`[Event] 剪貼簿偵測到新的有效 URL: ${payload.url}`);
                     console.log(`[Event] 額外資訊: 標題="${payload.title}", 圖片 URL=${payload.image}`);
 
                     // 1. 執行前端檢查，避免重複新增
                     // 注意：這裡的 tasks 依賴是 useEffect 的閉包值，
                     // 雖然 React 會在 tasks 變化時重新執行 useEffect，但在極端情況下仍可能重複。
                     // 但以 React Hooks 標準，這樣處理是常見且合理的。
-                    const isAlreadyInList = tasks.some(task => task.url === newUrl);
+                    const isAlreadyInList = tasks.some(task => task.url === payload.url);
 
                     if (!isAlreadyInList) {
                         console.log("URL 不在列表中，自動新增任務。");
@@ -57,7 +56,7 @@ export const useClipboardMonitor = (
                     }
 
                     // 2. 將新的 URL 設置到輸入框狀態 (可選)
-                    setUrl(newUrl);
+                    setUrl(payload.url);
                 });
             };
 

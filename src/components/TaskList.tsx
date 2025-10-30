@@ -15,7 +15,6 @@ export const TaskList: React.FC<TaskListProps> = ({ tasks }) => {
                     <tr>
                         {/* ✨ 變更為顯示標題 */}
                         <th>標題 (Name)</th>
-                        <th>狀態</th>
                         {/* 考慮將 URL 放在單獨的欄位或工具提示中，這裡先顯示在 cell 中 */}
                         <th>連結 (URL)</th>
                         {/* ✨ 變更為顯示圖片 */}
@@ -24,10 +23,9 @@ export const TaskList: React.FC<TaskListProps> = ({ tasks }) => {
                 </thead>
                 <tbody>
                     {tasks.map((task) => (
-                        <tr key={task.id}>
+                        <tr key={task.title}>
                             {/* ✨ 使用 task.title 來顯示標題 */}
-                            <td title={task.name}>{task.title}</td>
-                            <td>{task.status}</td>
+                            <td title={task.title}>{task.title}</td>
 
                             {/* 顯示 URL，過長時建議省略或使用 title 提示 */}
                             <td title={task.url} className="url-cell">
