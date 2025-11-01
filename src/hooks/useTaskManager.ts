@@ -1,40 +1,52 @@
-// src/hooks/useTaskManager.ts
-
-import { useState, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { Task, ClipboardPayload, UseTaskManager } from '../types';
 
-// 2. ⚠️ 修改 UseTaskManager 介面和 addTask 的簽名
-
-
+/**
+ * useTaskManager
+ * - 管理任務列表 state
+ * - 啟動時從 SQLite 載入任務
+ * - 提供 addTask 函數給其他 hook 或 UI 使用
+ */
 export const useTaskManager = (): UseTaskManager => {
     const [tasks, setTasks] = useState<Task[]>([]);
 
-    /**
-     * 處理新增任務的邏輯，會呼叫後端指令。
-     */
-    // 3. ⚠️ 更新 addTask 函數簽名，接受單一 payload 物件
-    const addTask = useCallback(async (payload: ClipboardPayload) => {
+    // 🔹 1️⃣ 啟動時從 SQLite 載入所有任務
+    useEffect(() => {
+        const loadTasks = async () => {
+            try {
+                const result = await invoke<Task[]>("load_all_tasks");
+                setTasks(result);
+                console.log(`[TaskManager] 載入 ${result.length} 個任務`);
+            } catch (err) {
+                console.error("[TaskManager] 讀取任務失敗", err);
+            }
+        };
 
-        // 檢查任務是否已存在 
+        loadTasks();
+    }, []);
+
+
+    // 🔹 2️⃣ 新增任務函數
+    const addTask = useCallback(async (payload: ClipboardPayload) => {
+        // 避免重複任務
         if (tasks.some(task => task.url === payload.url)) {
-            console.warn(`任務已存在: ${payload.url}`);
+            console.warn(`[TaskManager] 任務已存在: ${payload.url}`);
             return;
         }
 
         try {
-            // 呼叫後端指令，只傳遞 URL (假設後端只處理 URL)
+            // 可呼叫後端指令，例如下載 URL
             await invoke("download_url", { url: payload.url });
 
-            // 更新前端的任務清單
+            // 同步更新前端 state
             setTasks(prevTasks => [...prevTasks, payload]);
 
-            console.log(`成功提交新任務: ${payload.title}`);
-
+            console.log(`[TaskManager] 成功新增任務: ${payload.title}`);
         } catch (error) {
-            console.error("呼叫後端指令 [download_url] 時發生錯誤：", error);
+            console.error("[TaskManager] 呼叫後端 download_url 發生錯誤:", error);
         }
-    }, [tasks]); // 依賴於 tasks
+    }, [tasks]);
 
     return {
         tasks,

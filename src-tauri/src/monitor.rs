@@ -9,6 +9,7 @@ use tauri::{AppHandle, Emitter};
 use tokio::runtime::Runtime;
 
 use crate::commands::common::is_valid_wnacg_url;
+use crate::db;
 
 const MONITOR_INTERVAL_MS: u64 = 500;
 
@@ -154,6 +155,11 @@ pub fn start_clipboard_monitor(app_handle: AppHandle) {
                             match fetch_payload_details(url_clone).await {
                                 Ok(payload) => {
                                     println!("Rust Monitor: 成功獲取詳細資訊，推送事件。");
+                                    // 將 payload 寫進 SQLite
+                                    if let Err(e) = db::insert_task(&app_handle_clone, &payload) {
+                                        eprintln!("寫入 SQLite 失敗: {:?}", e);
+                                    }
+
                                     // 在異步任務中發送事件
                                     if let Err(e) =
                                         app_handle_clone.emit("new-valid-url-payload", payload)

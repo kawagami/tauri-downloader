@@ -1,5 +1,7 @@
 // src/commands/common.rs
 
+use crate::db;
+use crate::monitor::ClipboardPayload;
 use clipboard::{ClipboardContext, ClipboardProvider};
 use tauri::command;
 use url::Url;
@@ -55,4 +57,10 @@ pub fn read_clipboard() -> Result<String, String> {
 
     ctx.get_contents()
         .map_err(|e| format!("Error reading clipboard: {}", e))
+}
+
+/// 取得所有任務列表
+#[tauri::command]
+pub fn load_all_tasks(app_handle: tauri::AppHandle) -> Result<Vec<ClipboardPayload>, String> {
+    db::get_all_tasks(&app_handle).map_err(|e| format!("讀取資料庫失敗: {:?}", e))
 }
