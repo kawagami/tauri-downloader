@@ -14,7 +14,7 @@ import { ClipboardPayload } from "./types";
 
 function App() {
   // 1. 呼叫核心邏輯 Hooks
-  const { tasks, addTask } = useTaskManager();
+  const { tasks, addTask, removeTask, removeAllTasks } = useTaskManager();
   // 將 addTask 傳入 useClipboardMonitor
   const {
     monitorClipboard,
@@ -66,7 +66,11 @@ function App() {
           onMonitorChange={handleMonitorChange}
         />
 
-        <TaskList tasks={tasks} />
+        <TaskList
+          tasks={tasks}
+          onRemoveTask={(url) => removeTask(url)}
+          onRemoveAll={() => removeAllTasks()}
+        />
 
       </main>
 

@@ -59,7 +59,7 @@ pub fn get_all_tasks(app_handle: &AppHandle) -> Result<Vec<ClipboardPayload>> {
     let conn = Connection::open(db_path)?;
 
     let mut stmt =
-        conn.prepare("SELECT url, title, image, download_page_href FROM tasks ORDER BY id DESC")?;
+        conn.prepare("SELECT url, title, image, download_page_href FROM tasks ORDER BY id ASC")?;
 
     let task_iter = stmt.query_map([], |row| {
         Ok(ClipboardPayload {

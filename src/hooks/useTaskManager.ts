@@ -48,8 +48,28 @@ export const useTaskManager = (): UseTaskManager => {
         }
     }, [tasks]);
 
+    const removeTask = useCallback(async (url: string) => {
+        try {
+            await invoke("remove_task", { url });
+            setTasks(prev => prev.filter(task => task.url !== url));
+        } catch (err) {
+            console.error("刪除任務失敗", err);
+        }
+    }, []);
+
+    const removeAllTasks = useCallback(async () => {
+        try {
+            await invoke("remove_all_tasks");
+            setTasks([]); // 清空前端 state
+        } catch (err) {
+            console.error("刪除全部任務失敗", err);
+        }
+    }, []);
+
     return {
         tasks,
         addTask,
+        removeTask,
+        removeAllTasks,
     };
 };

@@ -27,9 +27,21 @@ export type AddTaskFunction = (payload: ClipboardPayload) => Promise<void>;
 
 export interface UseTaskManager {
     tasks: Task[];
+
     /**
-     * 處理新增任務的邏輯。
-     * @param payload 包含 URL、title 和 image 的單一物件。
+     * 新增任務。
+     * @param payload 包含 URL、title、image 等資訊的單一物件。
      */
     addTask: (payload: ClipboardPayload) => Promise<void>;
+
+    /**
+     * 刪除單個任務。
+     * @param url 要刪除的任務 URL。
+     */
+    removeTask: (url: string) => Promise<void>;
+
+    /**
+     * 刪除全部任務。
+     */
+    removeAllTasks: () => Promise<void>;
 }
