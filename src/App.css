@@ -155,7 +155,7 @@ body {
   display: none;
   position: absolute;
   top: 0;
-  right: 110%;
+  right: 100%;
   /* 往左側顯示 */
   z-index: 100;
   background: white;
