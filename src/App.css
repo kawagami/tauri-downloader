@@ -137,3 +137,40 @@ body {
   height: 64px;
   cursor: pointer;
 }
+
+.image-container {
+  position: relative;
+  display: inline-block;
+}
+
+.thumbnail {
+  width: 100px;
+  height: auto;
+  object-fit: contain;
+  cursor: pointer;
+}
+
+/* 👇 改成顯示在左方，不會撐開表格 */
+.image-preview {
+  display: none;
+  position: absolute;
+  top: 0;
+  right: 110%;
+  /* 往左側顯示 */
+  z-index: 100;
+  background: white;
+  border: 1px solid #ccc;
+  padding: 5px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  white-space: nowrap;
+  /* 避免表格被撐開 */
+}
+
+.image-preview img {
+  width: 500px;
+  height: auto;
+}
+
+.image-container:hover .image-preview {
+  display: block;
+}

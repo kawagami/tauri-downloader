@@ -34,11 +34,16 @@ export const TaskList: React.FC<TaskListProps> = ({ tasks, onRemoveTask, onRemov
                             </td>
                             <td>
                                 {task.image && task.image !== "placeholder.png" ? (
-                                    <img
-                                        src={task.image}
-                                        alt={`預覽圖: ${task.title}`}
-                                        style={{ width: '100px', height: 'auto', objectFit: 'contain' }}
-                                    />
+                                    <div className="image-container">
+                                        <img
+                                            src={task.image}
+                                            alt={`預覽圖: ${task.title}`}
+                                            className="thumbnail"
+                                        />
+                                        <div className="image-preview">
+                                            <img src={task.image} alt={`預覽圖: ${task.title}`} />
+                                        </div>
+                                    </div>
                                 ) : (
                                     <span>無圖片</span>
                                 )}
