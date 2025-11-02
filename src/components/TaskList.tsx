@@ -39,6 +39,7 @@ export const TaskList: React.FC<TaskListProps> = ({ tasks, onRemoveTask, onRemov
                                             src={task.image}
                                             alt={`預覽圖: ${task.title}`}
                                             className="thumbnail"
+                                            loading="lazy"
                                         />
                                         <div className="image-preview">
                                             <img src={task.image} alt={`預覽圖: ${task.title}`} />
