@@ -1,22 +1,23 @@
 // src/lib.rs
 
+use tauri::Manager;
+
+use crate::{db::init_db, state::AppState};
+
 pub mod commands;
 pub mod db;
 pub mod download_core;
 pub mod monitor;
+pub mod state;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
-            // 初始化資料庫
-            db::init_db(&app.handle())
-                .map_err(|e| {
-                    println!("❌ 資料庫初始化失敗: {:?}", e);
-                    e
-                })
-                .ok();
+            let db = init_db(app.handle())?;
+            let state = AppState::new(db);
+            app.manage(state);
 
             // 啟動剪貼簿監控邏輯
             let app_handle = app.handle().clone();

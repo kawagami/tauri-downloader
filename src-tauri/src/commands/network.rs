@@ -11,6 +11,20 @@ use tauri::{command, AppHandle};
 // use tokio::time::{sleep, Duration};
 // use tauri::Manager; // 暫時移除，避免 windows() 錯誤
 
+#[tauri::command]
+pub async fn check_file_available(url: String) -> Result<bool, String> {
+    let client = reqwest::Client::new();
+
+    let resp = client
+        .head(&url)
+        .send()
+        .await
+        .map_err(|e| format!("request error: {}", e))?;
+
+    // 狀態碼 200 表示可用
+    Ok(resp.status().is_success())
+}
+
 #[command]
 // 函數仍然需要是 async，因為它是 Tauri command
 pub async fn download_url(_app_handle: AppHandle, url: String) -> Result<String, String> {

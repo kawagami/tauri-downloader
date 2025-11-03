@@ -2,7 +2,7 @@ use rusqlite::{params, Connection, Result};
 use std::path::PathBuf;
 use tauri::{AppHandle, Manager};
 
-use crate::monitor::ClipboardPayload;
+use crate::{monitor::ClipboardPayload, state::AppState};
 
 /// 取得 SQLite 檔案路徑
 pub fn get_db_path(app_handle: &AppHandle) -> PathBuf {
@@ -36,8 +36,8 @@ pub fn init_db(app_handle: &AppHandle) -> Result<Connection> {
 
 /// 新增任務資料
 pub fn insert_task(app_handle: &AppHandle, payload: &ClipboardPayload) -> Result<()> {
-    let db_path = get_db_path(app_handle);
-    let conn = Connection::open(db_path)?;
+    let state = app_handle.state::<AppState>();
+    let conn = state.db.lock().unwrap();
 
     conn.execute(
         "INSERT OR IGNORE INTO tasks (url, title, image, download_page_href)
@@ -55,8 +55,8 @@ pub fn insert_task(app_handle: &AppHandle, payload: &ClipboardPayload) -> Result
 
 /// 取得所有任務資料
 pub fn get_all_tasks(app_handle: &AppHandle) -> Result<Vec<ClipboardPayload>> {
-    let db_path = get_db_path(app_handle);
-    let conn = Connection::open(db_path)?;
+    let state = app_handle.state::<AppState>();
+    let conn = state.db.lock().unwrap();
 
     let mut stmt =
         conn.prepare("SELECT url, title, image, download_page_href FROM tasks ORDER BY id ASC")?;
@@ -80,8 +80,8 @@ pub fn get_all_tasks(app_handle: &AppHandle) -> Result<Vec<ClipboardPayload>> {
 
 /// 取得指定 URL 的任務
 pub fn get_task_by_url(app_handle: &AppHandle, url: &str) -> Result<Option<ClipboardPayload>> {
-    let db_path = get_db_path(app_handle);
-    let conn = Connection::open(db_path)?;
+    let state = app_handle.state::<AppState>();
+    let conn = state.db.lock().unwrap();
 
     let mut stmt =
         conn.prepare("SELECT url, title, image, download_page_href FROM tasks WHERE url = ?1")?;
@@ -102,16 +102,16 @@ pub fn get_task_by_url(app_handle: &AppHandle, url: &str) -> Result<Option<Clipb
 
 /// 刪除指定 URL 的任務
 pub fn delete_task_by_url(app_handle: &AppHandle, url: &str) -> Result<()> {
-    let db_path = get_db_path(app_handle);
-    let conn = Connection::open(db_path)?;
+    let state = app_handle.state::<AppState>();
+    let conn = state.db.lock().unwrap();
     conn.execute("DELETE FROM tasks WHERE url = ?1", params![url])?;
     Ok(())
 }
 
 /// 清空所有任務
 pub fn clear_all_tasks(app_handle: &AppHandle) -> Result<()> {
-    let db_path = get_db_path(app_handle);
-    let conn = Connection::open(db_path)?;
+    let state = app_handle.state::<AppState>();
+    let conn = state.db.lock().unwrap();
     conn.execute("DELETE FROM tasks", [])?;
     Ok(())
 }
