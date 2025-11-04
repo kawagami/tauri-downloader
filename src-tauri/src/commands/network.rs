@@ -2,18 +2,19 @@
 
 // 這裡需要引入外部的 download_core 模塊
 // 只需要 DownloadManager 的 new 和 start_download 方法
-use crate::download_core::DownloadManager;
+use crate::{download_core::DownloadManager, state::AppState};
 
 // 引入 Tauri 核心
-use tauri::{command, AppHandle};
+use tauri::{command, AppHandle, State};
 
 // 由於移除了異步循環，暫時不需要 tokio::time
 // use tokio::time::{sleep, Duration};
 // use tauri::Manager; // 暫時移除，避免 windows() 錯誤
 
 #[tauri::command]
-pub async fn check_file_available(url: String) -> Result<bool, String> {
-    let client = reqwest::Client::new();
+pub async fn check_file_available(url: String, state: State<'_, AppState>) -> Result<bool, String> {
+    // 使用全域共用的 reqwest client
+    let client = &state.client;
 
     let resp = client
         .head(&url)

@@ -1,15 +1,15 @@
 // src/monitor.rs
 
 use clipboard::ClipboardProvider;
-use reqwest;
 use scraper::Selector;
 use std::thread;
 use std::time::Duration;
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 use tokio::runtime::Runtime;
 
 use crate::commands::common::is_valid_wnacg_url;
 use crate::db;
+use crate::state::AppState;
 
 const MONITOR_INTERVAL_MS: u64 = 500;
 
@@ -25,12 +25,14 @@ pub struct ClipboardPayload {
 // 為了簡化，我們在 monitor.rs 中定義一個模擬或實際的函數
 // 由於這是網絡操作，它必須是 async 的
 async fn fetch_payload_details(
+    app_handle: &AppHandle,
     url: String,
 ) -> Result<ClipboardPayload, Box<dyn std::error::Error + Send + Sync>> {
     println!("Rust Monitor: 正在從 URL 獲取詳細資訊: {}", url);
 
-    // 實際的 reqwest 請求範例：
-    let client = reqwest::Client::new();
+    // 取 state 中的 client 執行 reqwest get 請求
+    let state = app_handle.state::<AppState>();
+    let client = &state.client;
     let res = client.get(&url).send().await?;
 
     // 檢查響應狀態
@@ -152,7 +154,7 @@ pub fn start_clipboard_monitor(app_handle: AppHandle) {
                         // ✨ 使用 rt.spawn 執行異步任務
                         // rt.spawn 不會阻塞當前的 loop 線程
                         rt.spawn(async move {
-                            match fetch_payload_details(url_clone).await {
+                            match fetch_payload_details(&app_handle_clone, url_clone).await {
                                 Ok(payload) => {
                                     println!("Rust Monitor: 成功獲取詳細資訊，推送事件。");
                                     // 將 payload 寫進 SQLite
