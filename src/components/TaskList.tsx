@@ -1,3 +1,5 @@
+// TaskList.tsx
+
 import React from 'react';
 import { Task } from '../types';
 
@@ -5,9 +7,10 @@ interface TaskListProps {
     tasks: Task[];
     onRemoveTask: (url: string) => void;
     onRemoveAll: () => void;
+    onDownloadTask?: (task: Task) => void; // 新增
 }
 
-export const TaskList: React.FC<TaskListProps> = ({ tasks, onRemoveTask, onRemoveAll }) => {
+export const TaskList: React.FC<TaskListProps> = ({ tasks, onRemoveTask, onRemoveAll, onDownloadTask }) => {
     return (
         <div className="task-list-container">
             <div style={{ marginBottom: '10px' }}>
@@ -51,6 +54,11 @@ export const TaskList: React.FC<TaskListProps> = ({ tasks, onRemoveTask, onRemov
                             </td>
                             <td>
                                 <button onClick={() => onRemoveTask(task.url)}>刪除</button>
+                                {onDownloadTask && (
+                                    <button onClick={() => onDownloadTask(task)} style={{ marginLeft: '5px' }}>
+                                        下載
+                                    </button>
+                                )}
                             </td>
                         </tr>
                     ))}

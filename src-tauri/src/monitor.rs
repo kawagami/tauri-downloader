@@ -2,6 +2,7 @@
 
 use clipboard::ClipboardProvider;
 use scraper::Selector;
+use serde::{Deserialize, Serialize};
 use std::thread;
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager};
@@ -13,7 +14,7 @@ use crate::state::AppState;
 
 const MONITOR_INTERVAL_MS: u64 = 500;
 
-#[derive(Clone, serde::Serialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct ClipboardPayload {
     pub url: String,
     pub title: String, // 依照 url 使用 reqwest get 取得的其一資訊

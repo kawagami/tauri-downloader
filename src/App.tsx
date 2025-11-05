@@ -1,6 +1,6 @@
 // src/App.tsx
 
-import React, { useCallback } from "react";
+import React, { useCallback, useState } from "react";
 import "./App.css";
 import downloadIcon from "./assets/react.svg";
 
@@ -10,9 +10,14 @@ import { useClipboardMonitor } from './hooks/useClipboardMonitor';
 import { TaskInputForm } from './components/TaskInputForm';
 import { TaskList } from './components/TaskList';
 import { ClipboardPayload } from "./types";
+import { DownloadPage } from './components/DownloadPage';
 
 
 function App() {
+
+  const [downloadUrl, setDownloadUrl] = useState<string | undefined>();
+  const [downloadTitle, setDownloadTitle] = useState<string | undefined>();
+
   // 1. 呼叫核心邏輯 Hooks
   const { tasks, addTask, removeTask, removeAllTasks } = useTaskManager();
   // 將 addTask 傳入 useClipboardMonitor
@@ -70,7 +75,13 @@ function App() {
           tasks={tasks}
           onRemoveTask={(url) => removeTask(url)}
           onRemoveAll={() => removeAllTasks()}
+          onDownloadTask={(task) => {
+            setDownloadUrl(task.download_page_href);
+            setDownloadTitle(task.title);
+          }}
         />
+
+        <DownloadPage url={downloadUrl} title={downloadTitle} />
 
       </main>
 
