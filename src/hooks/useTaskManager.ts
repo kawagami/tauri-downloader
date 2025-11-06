@@ -36,15 +36,15 @@ export const useTaskManager = (): UseTaskManager => {
         }
 
         try {
-            // 可呼叫後端指令，例如下載 URL
-            await invoke("download_url", { url: payload.url });
+            // // 可呼叫後端指令，例如下載 URL
+            // await invoke("download_with_progress", { url: payload.download_page_href, title: payload.title });
 
             // 同步更新前端 state
             setTasks(prevTasks => [...prevTasks, payload]);
 
             console.log(`[TaskManager] 成功新增任務: ${payload.title}`);
         } catch (error) {
-            console.error("[TaskManager] 呼叫後端 download_url 發生錯誤:", error);
+            console.error("[TaskManager] 呼叫後端 download_with_progress 發生錯誤:", error);
         }
     }, [tasks]);
 

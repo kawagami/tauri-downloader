@@ -2,7 +2,7 @@
 name = "tauri-downloader"
 version = "0.1.0"
 description = "A Tauri App"
-authors = ["you"]
+authors = ["kawa"]
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -29,3 +29,4 @@ url = "2.4.1"
 scraper = "0.19.0"
 rusqlite = { version = "0.31", features = ["bundled"] }
 futures-util = "0.3.31"
+sanitize-filename = "0.6"

@@ -6,6 +6,7 @@ use crate::state::AppState;
 
 // 引入 Tauri 核心
 use futures_util::StreamExt;
+use sanitize_filename::sanitize;
 use scraper::Selector;
 use std::fs::File;
 use std::io::Write;
@@ -40,7 +41,7 @@ pub async fn download_with_progress(
 ) -> Result<String, String> {
     let client = &state.client;
 
-    let file_name = format!("{}.zip", title);
+    let file_name = format!("{}.zip", sanitize(&title));
 
     // 取得應用資料夾路徑
     let mut save_path: PathBuf = app_handle
