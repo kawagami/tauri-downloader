@@ -8,6 +8,7 @@ use crate::state::AppState;
 use futures_util::StreamExt;
 use sanitize_filename::sanitize;
 use scraper::Selector;
+use serde::Serialize;
 use std::fs::File;
 use std::io::Write;
 use std::path::PathBuf;
@@ -16,6 +17,12 @@ use tauri::{AppHandle, Emitter, Manager, State};
 // 由於移除了異步循環，暫時不需要 tokio::time
 // use tokio::time::{sleep, Duration};
 // use tauri::Manager; // 暫時移除，避免 windows() 錯誤
+
+#[derive(Serialize, Clone)]
+struct DownloadProgress {
+    url: String,
+    progress: f64,
+}
 
 #[tauri::command]
 pub async fn check_file_available(url: String, state: State<'_, AppState>) -> Result<bool, String> {
@@ -39,10 +46,6 @@ pub async fn download_with_progress(
     state: State<'_, AppState>,
     app_handle: AppHandle,
 ) -> Result<String, String> {
-    let client = &state.client;
-
-    let file_name = format!("{}.zip", sanitize(&title));
-
     // 取得應用資料夾路徑
     let mut save_path: PathBuf = app_handle
         .path()
@@ -53,15 +56,24 @@ pub async fn download_with_progress(
     std::fs::create_dir_all(&save_path).map_err(|e| e.to_string())?;
 
     // 組合完整檔案路徑
-    save_path.push(file_name);
+    let base_name = sanitize(&title);
+    let mut file_name = format!("{}.zip", base_name);
+    save_path.push(&file_name);
+    let mut counter = 1;
+    while save_path.exists() {
+        file_name = format!("{}_{}.zip", base_name, counter);
+        save_path.set_file_name(&file_name);
+        counter += 1;
+    }
 
     // 取得檔案路徑
-    let file_url = get_file_url(&app_handle, url)
+    let file_url = get_file_url(&app_handle, &url)
         .await
         .map_err(|e| format!("無法取得 file_url: {}", e))?;
 
     let https_file_url = format!("https:{}", file_url);
     // 發送請求
+    let client = &state.client;
     let resp = client
         .get(https_file_url)
         .send()
@@ -93,9 +105,15 @@ pub async fn download_with_progress(
 
         let progress = (downloaded as f64 / total_size as f64) * 100.0;
 
-        // 🔥 發送事件給前端
+        // ✅ 發送事件（包含 URL）
+        let payload = DownloadProgress {
+            url: url.to_string(),
+            progress,
+        };
+
+        // println!("emit progress: {}% for {}", progress, url);
         app_handle
-            .emit("download_progress", progress)
+            .emit("download_progress", payload)
             .map_err(|e| e.to_string())?;
     }
 
@@ -105,14 +123,14 @@ pub async fn download_with_progress(
 /// 輔助用函數
 async fn get_file_url(
     app_handle: &AppHandle,
-    url: String,
+    url: &str,
 ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
     println!("Rust Monitor: 正在從 URL 獲取詳細資訊: {}", url);
 
     // 取 state 中的 client 執行 reqwest get 請求
     let state = app_handle.state::<AppState>();
     let client = &state.client;
-    let res = client.get(&url).send().await?;
+    let res = client.get(url).send().await?;
 
     // 檢查響應狀態
     if !res.status().is_success() {

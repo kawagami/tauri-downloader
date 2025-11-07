@@ -16,6 +16,12 @@ export interface Task {
     download_page_href: string;
 }
 
+export interface DownloadableTask extends Task {
+    progress?: number;
+    status?: "idle" | "downloading" | "done" | "error";
+    savePath?: string;
+}
+
 export interface ClipboardPayload {
     url: string;
     title: string;
