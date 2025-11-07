@@ -150,7 +150,12 @@ body {
   cursor: pointer;
 }
 
-/* 👇 改成顯示在左方，不會撐開表格 */
+.image-container {
+  position: relative;
+  display: inline-block;
+  /* 避免拉伸表格 */
+}
+
 .image-preview {
   display: none;
   position: absolute;
@@ -163,7 +168,7 @@ body {
   padding: 5px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
   white-space: nowrap;
-  /* 避免表格被撐開 */
+  /* 避免撐開表格 */
 }
 
 .image-preview img {
