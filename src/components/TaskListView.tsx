@@ -1,3 +1,5 @@
+// TaskListView.tsx
+
 import React from "react";
 import { DownloadableTask } from "../types";
 
@@ -6,8 +8,9 @@ interface TaskListViewProps {
     onRemoveTask: (url: string) => void;
     onRemoveAll: () => void;
     onDownload: (task: DownloadableTask) => void;
-    onDownloadAll: () => void; // ✅ 新增
-    isBatchDownloading: boolean; // ✅ 新增
+    onDownloadAll: () => void;
+    onStopDownloadAll: () => void; // ✅ 新增
+    isBatchDownloading: boolean;
 }
 
 export const TaskListView: React.FC<TaskListViewProps> = ({
@@ -16,19 +19,32 @@ export const TaskListView: React.FC<TaskListViewProps> = ({
     onRemoveAll,
     onDownload,
     onDownloadAll,
+    onStopDownloadAll, // ✅ 新增
     isBatchDownloading,
 }) => (
     <div className="task-list-container">
         <div style={{ marginBottom: "10px" }}>
             <button onClick={onRemoveAll}>全部刪除</button>
-            <button
-                onClick={onDownloadAll}
-                disabled={isBatchDownloading || tasks.length === 0}
-                style={{ marginLeft: "10px" }}
-            >
-                {isBatchDownloading ? "批次下載中..." : "全部下載"}
-            </button>
+
+            {/* ✅ 批次下載 / 停止按鈕切換 */}
+            {!isBatchDownloading ? (
+                <button
+                    onClick={onDownloadAll}
+                    disabled={tasks.length === 0}
+                    style={{ marginLeft: "10px" }}
+                >
+                    全部下載
+                </button>
+            ) : (
+                <button
+                    onClick={onStopDownloadAll}
+                    style={{ marginLeft: "10px", background: "#f87171", color: "white" }}
+                >
+                    停止下載
+                </button>
+            )}
         </div>
+
         <table className="task-table">
             <thead>
                 <tr>
@@ -44,7 +60,7 @@ export const TaskListView: React.FC<TaskListViewProps> = ({
                     <tr key={task.url}>
                         <td>{task.title}</td>
                         <td>
-                            <a href={task.download_page_href} target="_blank">
+                            <a href={task.download_page_href} target="_blank" rel="noreferrer">
                                 {task.url.length > 30
                                     ? task.url.substring(0, 30) + "..."
                                     : task.url}

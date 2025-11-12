@@ -1,4 +1,6 @@
-import { useState, useEffect } from "react";
+// useDownloadTasks.ts
+
+import { useState, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { Task, DownloadableTask } from "../types";
@@ -8,12 +10,13 @@ export function useDownloadTasks(baseTasks: Task[], onRemoveTask: (url: string) 
         baseTasks.map((t) => ({ ...t, status: "idle", progress: 0 }))
     );
     const [isBatchDownloading, setIsBatchDownloading] = useState(false);
+    const shouldStop = useRef(false); // 🔹 用 useRef 存放停止旗標
 
     useEffect(() => {
         setTasks(baseTasks.map((t) => ({ ...t, status: "idle", progress: 0 })));
     }, [baseTasks]);
 
-    // 監聽 tauri 傳來的進度事件
+    // --- 監聽 tauri 傳來的進度事件 ---
     useEffect(() => {
         let unlisten: (() => void) | undefined;
         const setup = async () => {
@@ -33,7 +36,7 @@ export function useDownloadTasks(baseTasks: Task[], onRemoveTask: (url: string) 
         return () => unlisten?.();
     }, []);
 
-    // 單個任務下載
+    // --- 單一下載 ---
     const handleDownload = async (task: DownloadableTask) => {
         setTasks((prev) =>
             prev.map((t) =>
@@ -61,15 +64,20 @@ export function useDownloadTasks(baseTasks: Task[], onRemoveTask: (url: string) 
         }
     };
 
-    // 🔹 新增：批次下載（順序下載所有任務）
+    // --- 批次下載 ---
     const handleDownloadAllSequentially = async () => {
         if (isBatchDownloading) return;
+        shouldStop.current = false; // 重設停止旗標
         setIsBatchDownloading(true);
 
         for (const task of tasks) {
+            if (shouldStop.current) {
+                console.log("🟥 已手動停止批次下載");
+                break;
+            }
+
             if (task.status !== "idle" && task.status !== "error") continue;
 
-            // 更新狀態
             setTasks((prev) =>
                 prev.map((t) =>
                     t.url === task.url ? { ...t, status: "downloading", progress: 0 } : t
@@ -84,7 +92,6 @@ export function useDownloadTasks(baseTasks: Task[], onRemoveTask: (url: string) 
                 });
 
                 console.log(`[Batch] 完成: ${task.title}`);
-                // 標示完成
                 setTasks((prev) =>
                     prev.map((t) =>
                         t.url === task.url
@@ -93,12 +100,8 @@ export function useDownloadTasks(baseTasks: Task[], onRemoveTask: (url: string) 
                     )
                 );
 
-                // 🔸 刪除已完成的項目
                 onRemoveTask(task.url);
-
-                // 沒停頓的話 下載狀態的項目會被上面的 onRemoveTask 清掉狀態
                 await new Promise((resolve) => setTimeout(resolve, 1000));
-
             } catch (err) {
                 console.error(`[Batch] 錯誤: ${task.title}`, err);
                 setTasks((prev) =>
@@ -112,5 +115,17 @@ export function useDownloadTasks(baseTasks: Task[], onRemoveTask: (url: string) 
         setIsBatchDownloading(false);
     };
 
-    return { tasks, setTasks, handleDownload, handleDownloadAllSequentially, isBatchDownloading };
+    // 🔸 外部可呼叫的停止方法
+    const stopBatchDownload = () => {
+        shouldStop.current = true;
+    };
+
+    return {
+        tasks,
+        setTasks,
+        handleDownload,
+        handleDownloadAllSequentially,
+        stopBatchDownload,  // 👈 新增這個
+        isBatchDownloading
+    };
 }

@@ -13,11 +13,11 @@ export const TaskList = ({
     onRemoveTask: (url: string) => void;
     onRemoveAll: () => void;
 }) => {
-    // ✅ 將 onRemoveTask 傳入 useDownloadTasks（用於下載完自動刪除）
     const {
         tasks: downloadTasks,
         handleDownload,
         handleDownloadAllSequentially,
+        stopBatchDownload, // ✅ 新增這個
         isBatchDownloading,
     } = useDownloadTasks(tasks, onRemoveTask);
 
@@ -27,8 +27,8 @@ export const TaskList = ({
             onRemoveTask={onRemoveTask}
             onRemoveAll={onRemoveAll}
             onDownload={handleDownload}
-            // ✅ 新增兩個 props 給 TaskListView
             onDownloadAll={handleDownloadAllSequentially}
+            onStopDownloadAll={stopBatchDownload} // ✅ 新增這個 prop
             isBatchDownloading={isBatchDownloading}
         />
     );
