@@ -71,11 +71,10 @@ pub async fn download_with_progress(
         .await
         .map_err(|e| format!("無法取得 file_url: {}", e))?;
 
-    let https_file_url = format!("https:{}", file_url);
     // 發送請求
     let client = &state.client;
     let resp = client
-        .get(https_file_url)
+        .get(file_url)
         .send()
         .await
         .map_err(|e| e.to_string())?;
@@ -141,17 +140,33 @@ async fn get_file_url(
     let html_content = res.text().await?;
     let document = scraper::Html::parse_document(&html_content);
 
-    // 取得下載路徑
-    let download_page_href_selector = Selector::parse("#adsbox > a:nth-child(1)").unwrap();
+    // 1. 定義新的選擇器 (針對 a.ads)
+    let download_selector = Selector::parse("a.ads").unwrap();
+
+    // 2. 執行選取與提取
     let download_page_href_raw = document
-        .select(&download_page_href_selector)
+        .select(&download_selector)
         .next()
         .and_then(|element| element.value().attr("href"))
-        .map(|href| href.to_string())
+        .map(|href| {
+            if href.starts_with("http") {
+                // 如果已經有 http 或 https，直接轉 String
+                href.to_string()
+            } else if href.starts_with("//") {
+                // 如果是 // 開頭，補上 https:
+                format!("https:{}", href)
+            } else if href.starts_with('/') {
+                // 如果是單斜線 / 開頭，通常需要補上主網站網域 (假設為主站)
+                format!("https://www.wnacg.com{}", href)
+            } else {
+                href.to_string()
+            }
+        })
         .unwrap_or_else(|| {
-            eprintln!("Rust Monitor: 無法找到下載頁面的 href。");
-            "".to_string() // 找不到時使用空字串
+            eprintln!("Rust Monitor: 無法找到下載連結 (a.ads)。");
+            "".to_string()
         });
 
+    // 返回結果
     Ok(download_page_href_raw)
 }
