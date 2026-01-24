@@ -9,14 +9,8 @@ use futures_util::StreamExt;
 use sanitize_filename::sanitize;
 use scraper::Selector;
 use serde::Serialize;
-use std::fs::File;
-use std::io::Write;
-use std::path::PathBuf;
+use std::{fs::File, io::Write, path::PathBuf};
 use tauri::{AppHandle, Emitter, Manager, State};
-
-// 由於移除了異步循環，暫時不需要 tokio::time
-// use tokio::time::{sleep, Duration};
-// use tauri::Manager; // 暫時移除，避免 windows() 錯誤
 
 #[derive(Serialize, Clone)]
 struct DownloadProgress {
@@ -155,9 +149,6 @@ async fn get_file_url(
             } else if href.starts_with("//") {
                 // 如果是 // 開頭，補上 https:
                 format!("https:{}", href)
-            } else if href.starts_with('/') {
-                // 如果是單斜線 / 開頭，通常需要補上主網站網域 (假設為主站)
-                format!("https://www.wnacg.com{}", href)
             } else {
                 href.to_string()
             }

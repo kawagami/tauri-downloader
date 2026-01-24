@@ -3,8 +3,7 @@
 use clipboard::ClipboardProvider;
 use scraper::Selector;
 use serde::{Deserialize, Serialize};
-use std::thread;
-use std::time::Duration;
+use std::{thread, time::Duration};
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::runtime::Runtime;
 
