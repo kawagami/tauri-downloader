@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { Task, ClipboardPayload, UseTaskManager } from '../types';
 
@@ -11,8 +11,13 @@ import { Task, ClipboardPayload, UseTaskManager } from '../types';
 export const useTaskManager = (): UseTaskManager => {
     const [tasks, setTasks] = useState<Task[]>([]);
 
+    // 🔹 使用 useRef 儲存音效實例，避免每次 render 重新創建
+    const audioRef = useRef<HTMLAudioElement | null>(null);
+
     // 🔹 1️⃣ 啟動時從 SQLite 載入所有任務
-    useEffect(() => {
+    useEffect(() => {// 初始化音效
+        audioRef.current = new Audio('/ding.mp3');
+
         const loadTasks = async () => {
             try {
                 const result = await invoke<Task[]>("load_all_tasks");
@@ -41,6 +46,17 @@ export const useTaskManager = (): UseTaskManager => {
 
             // 同步更新前端 state
             setTasks(prevTasks => [...prevTasks, payload]);
+
+            // 🔹 播放音效
+            if (audioRef.current) {
+                audioRef.current.currentTime = 0; // 強制回到開頭，避免連續觸發時沒聲音
+                audioRef.current
+                    .play()
+                    .catch(err => {
+                        // 瀏覽器可能會攔截未經使用者互動的自動播放
+                        console.warn("[TaskManager] 音效播放被攔截:", err);
+                    });
+            }
 
             console.log(`[TaskManager] 成功新增任務: ${payload.title}`);
         } catch (error) {
