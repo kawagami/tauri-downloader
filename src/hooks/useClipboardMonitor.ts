@@ -7,8 +7,6 @@ import { ClipboardPayload, Task, AddTaskFunction } from '../types';
 interface UseClipboardMonitor {
     monitorClipboard: boolean;
     setMonitorClipboard: (enabled: boolean) => void;
-    url: string; // 用於管理輸入框的狀態
-    setUrl: (url: string) => void;
 }
 
 /**
@@ -21,7 +19,6 @@ export const useClipboardMonitor = (
     tasks: Task[]
 ): UseClipboardMonitor => {
     const [monitorClipboard, setMonitorClipboardState] = useState(false);
-    const [url, setUrl] = useState('');
 
     const setMonitorClipboard = useCallback((enabled: boolean) => {
         setMonitorClipboardState(enabled);
@@ -54,9 +51,6 @@ export const useClipboardMonitor = (
                     } else {
                         console.log("URL 已在列表中，跳過新增。");
                     }
-
-                    // 2. 將新的 URL 設置到輸入框狀態 (可選)
-                    setUrl(payload.url);
                 });
             };
 
@@ -76,7 +70,5 @@ export const useClipboardMonitor = (
     return {
         monitorClipboard,
         setMonitorClipboard,
-        url,
-        setUrl,
     };
 };
