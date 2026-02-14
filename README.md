@@ -3,6 +3,11 @@
 * 使用 docker 而不安裝 node 的開發環境太麻煩了
 * 轉向使用 nvm 安裝 node 後開發 tauri
 
+## windows 開發環境初始要執行的指令
+* iwr https://get.pnpm.io/install.ps1 -useb | iex
+* pnpm env use --global lts
+* pnpm install
+
 ## Command
 * 開發
     * pnpm tauri dev
