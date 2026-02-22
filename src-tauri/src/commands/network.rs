@@ -1,13 +1,9 @@
 // src/commands/network.rs
 
-// 這裡需要引入外部的 download_core 模塊
-// 只需要 DownloadManager 的 new 和 start_download 方法
-use crate::state::AppState;
+use crate::{providers::wnacg, state::AppState};
 
-// 引入 Tauri 核心
 use futures_util::StreamExt;
 use sanitize_filename::sanitize;
-use scraper::Selector;
 use serde::Serialize;
 use std::{fs::File, io::Write, path::PathBuf};
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -61,7 +57,7 @@ pub async fn download_with_progress(
     }
 
     // 取得檔案路徑
-    let file_url = get_file_url(&app_handle, &url)
+    let file_url = wnacg::get_file_url(&app_handle, &url)
         .await
         .map_err(|e| format!("無法取得 file_url: {}", e))?;
 
@@ -111,53 +107,4 @@ pub async fn download_with_progress(
     }
 
     Ok(save_path.to_string_lossy().to_string())
-}
-
-/// 輔助用函數
-async fn get_file_url(
-    app_handle: &AppHandle,
-    url: &str,
-) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
-    println!("Rust Monitor: 正在從 URL 獲取詳細資訊: {}", url);
-
-    // 取 state 中的 client 執行 reqwest get 請求
-    let state = app_handle.state::<AppState>();
-    let client = &state.client;
-    let res = client.get(url).send().await?;
-
-    // 檢查響應狀態
-    if !res.status().is_success() {
-        return Err(format!("網絡請求失敗，狀態碼: {}", res.status()).into());
-    }
-
-    // 實際應用中，您會解析 HTML 內容來獲取 title 和 image URL/ID
-    let html_content = res.text().await?;
-    let document = scraper::Html::parse_document(&html_content);
-
-    // 1. 定義新的選擇器 (針對 a.ads)
-    let download_selector = Selector::parse("a.ads").unwrap();
-
-    // 2. 執行選取與提取
-    let download_page_href_raw = document
-        .select(&download_selector)
-        .next()
-        .and_then(|element| element.value().attr("href"))
-        .map(|href| {
-            if href.starts_with("http") {
-                // 如果已經有 http 或 https，直接轉 String
-                href.to_string()
-            } else if href.starts_with("//") {
-                // 如果是 // 開頭，補上 https:
-                format!("https:{}", href)
-            } else {
-                href.to_string()
-            }
-        })
-        .unwrap_or_else(|| {
-            eprintln!("Rust Monitor: 無法找到下載連結 (a.ads)。");
-            "".to_string()
-        });
-
-    // 返回結果
-    Ok(download_page_href_raw)
 }
