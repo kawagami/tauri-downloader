@@ -7,7 +7,7 @@ use std::{thread, time::Duration};
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::runtime::Runtime;
 
-use crate::commands::common::is_valid_wnacg_url;
+use crate::providers::wnacg::is_valid_wnacg_url;
 use crate::db;
 use crate::state::AppState;
 

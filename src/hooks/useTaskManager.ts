@@ -16,7 +16,7 @@ export const useTaskManager = (): UseTaskManager => {
 
     // 🔹 1️⃣ 啟動時從 SQLite 載入所有任務
     useEffect(() => {// 初始化音效
-        audioRef.current = new Audio('/ding.mp3');
+        audioRef.current = new Audio('./ding.mp3');
 
         const loadTasks = async () => {
             try {

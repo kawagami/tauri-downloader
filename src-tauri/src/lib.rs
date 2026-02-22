@@ -8,6 +8,7 @@ pub mod commands;
 pub mod db;
 pub mod download_core;
 pub mod monitor;
+pub mod providers;
 pub mod state;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
