@@ -1,7 +1,8 @@
 // src/commands/common.rs
 
 use crate::db;
-use crate::monitor::ClipboardPayload;
+use crate::providers::ClipboardPayload;
+
 use clipboard::{ClipboardContext, ClipboardProvider};
 use tauri::command;
 use tauri::AppHandle;

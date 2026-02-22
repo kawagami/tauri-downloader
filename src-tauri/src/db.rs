@@ -1,8 +1,8 @@
+use crate::{providers::ClipboardPayload, state::AppState};
+
 use rusqlite::{params, Connection, Result};
 use std::path::PathBuf;
 use tauri::{AppHandle, Manager};
-
-use crate::{monitor::ClipboardPayload, state::AppState};
 
 /// 取得 SQLite 檔案路徑
 pub fn get_db_path(app_handle: &AppHandle) -> PathBuf {

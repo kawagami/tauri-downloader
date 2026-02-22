@@ -10,6 +10,7 @@ pub mod download_core;
 pub mod monitor;
 pub mod providers;
 pub mod state;
+pub mod utils;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
