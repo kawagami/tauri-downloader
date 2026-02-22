@@ -26,7 +26,6 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            commands::common::greet,
             commands::network::download_with_progress,
             commands::common::read_clipboard,
             commands::common::load_all_tasks,

@@ -44,12 +44,6 @@ pub fn is_valid_wnacg_url(content: &str) -> Result<String, String> {
     Ok(parsed_url.to_string())
 }
 
-/// 簡單的問候命令
-#[command]
-pub fn greet(name: &str) -> String {
-    format!("Hello, {}! You've been greeted from Rust!", name)
-}
-
 /// 讀取剪貼簿內容
 #[command]
 pub fn read_clipboard() -> Result<String, String> {
