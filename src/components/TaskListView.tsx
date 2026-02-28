@@ -9,7 +9,7 @@ interface TaskListViewProps {
     onRemoveAll: () => void;
     onDownload: (task: DownloadableTask) => void;
     onDownloadAll: () => void;
-    onStopDownloadAll: () => void; // ✅ 新增
+    onStopDownloadAll: () => void;
     isBatchDownloading: boolean;
 }
 
@@ -19,14 +19,13 @@ export const TaskListView: React.FC<TaskListViewProps> = ({
     onRemoveAll,
     onDownload,
     onDownloadAll,
-    onStopDownloadAll, // ✅ 新增
+    onStopDownloadAll,
     isBatchDownloading,
 }) => (
     <div className="task-list-container">
         <div style={{ marginBottom: "10px" }}>
             <button onClick={onRemoveAll}>全部刪除</button>
 
-            {/* ✅ 批次下載 / 停止按鈕切換 */}
             {!isBatchDownloading ? (
                 <button
                     onClick={onDownloadAll}
@@ -49,7 +48,6 @@ export const TaskListView: React.FC<TaskListViewProps> = ({
             <thead>
                 <tr>
                     <th>標題</th>
-                    <th>連結</th>
                     <th>預覽圖</th>
                     <th>進度</th>
                     <th>操作</th>
@@ -58,14 +56,18 @@ export const TaskListView: React.FC<TaskListViewProps> = ({
             <tbody>
                 {tasks.map((task) => (
                     <tr key={task.url}>
-                        <td>{task.title}</td>
                         <td>
-                            <a href={task.download_page_href} target="_blank" rel="noreferrer">
-                                {task.url.length > 30
-                                    ? task.url.substring(0, 30) + "..."
-                                    : task.url}
+                            <a
+                                href={task.url}
+                                target="_blank"
+                                rel="noreferrer"
+                                style={{ textDecoration: 'none', color: '#3b82f6' }}
+                                title={task.url}
+                            >
+                                {task.title}
                             </a>
                         </td>
+
                         <td>
                             {task.image ? (
                                 <div className="image-container">
