@@ -7,6 +7,10 @@ use serde::Serialize;
 use std::fs::File;
 use std::io::Write;
 use std::path::PathBuf;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
 use tauri::{AppHandle, Emitter, Manager};
 use url::Url;
 
@@ -174,6 +178,7 @@ pub async fn download(
     source_url: String, // 原始網頁網址 (用於進度事件辨識)
     file_url: String,   // 實際檔案下載網址
     save_path: PathBuf,
+    cancelled: Arc<AtomicBool>,
 ) -> Result<(), String> {
     let resp = client
         .get(&file_url)
@@ -195,6 +200,12 @@ pub async fn download(
     let mut stream = resp.bytes_stream();
 
     while let Some(chunk) = stream.next().await {
+        if cancelled.load(Ordering::Relaxed) {
+            drop(file);
+            let _ = std::fs::remove_file(&save_path);
+            return Err("下載已取消".to_string());
+        }
+
         let chunk = chunk.map_err(|e| e.to_string())?;
         file.write_all(&chunk).map_err(|e| e.to_string())?;
         downloaded += chunk.len() as u64;

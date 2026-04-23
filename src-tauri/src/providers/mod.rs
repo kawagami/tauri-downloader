@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use std::sync::{atomic::AtomicBool, Arc};
 
 use serde::{Deserialize, Serialize};
 use tauri::AppHandle;
@@ -66,15 +67,17 @@ impl Site {
         app_handle: &AppHandle,
         source_url: String,
         save_path: PathBuf,
+        cancelled: Arc<AtomicBool>,
     ) -> Result<(), String> {
         match self {
             Site::Wnacg => {
                 let file_url = wnacg::get_file_url(app_handle, &source_url)
                     .await
                     .map_err(|e| e.to_string())?;
-                wnacg::download(client, app_handle, source_url, file_url, save_path).await
+                wnacg::download(client, app_handle, source_url, file_url, save_path, cancelled)
+                    .await
             }
-            Site::NHentai => todo!(),
+            Site::NHentai => Err("NHentai 下載尚未實作".to_string()),
         }
     }
 }

@@ -2,10 +2,12 @@
 
 use crate::db;
 use crate::providers::ClipboardPayload;
+use crate::state::AppState;
 
 use clipboard::{ClipboardContext, ClipboardProvider};
+use std::sync::atomic::Ordering;
 use tauri::command;
-use tauri::AppHandle;
+use tauri::{AppHandle, State};
 
 /// 讀取剪貼簿內容
 #[command]
@@ -31,4 +33,9 @@ pub fn remove_task(app_handle: AppHandle, url: String) -> Result<(), String> {
 #[tauri::command]
 pub fn remove_all_tasks(app_handle: AppHandle) -> Result<(), String> {
     db::clear_all_tasks(&app_handle).map_err(|e| format!("刪除全部任務失敗: {:?}", e))
+}
+
+#[tauri::command]
+pub fn cancel_download(state: State<'_, AppState>) {
+    state.download_cancelled.store(true, Ordering::Relaxed);
 }

@@ -1,4 +1,5 @@
 use crate::{providers::Site, state::AppState, utils};
+use std::sync::atomic::Ordering;
 use tauri::{AppHandle, Manager, State};
 
 #[tauri::command]
@@ -8,6 +9,9 @@ pub async fn download_with_progress(
     state: State<'_, AppState>,
     app_handle: AppHandle,
 ) -> Result<String, String> {
+    // 每次下載前重設取消旗標
+    state.download_cancelled.store(false, Ordering::Relaxed);
+
     // 1. 準備路徑
     let download_dir = app_handle
         .path()
@@ -20,8 +24,14 @@ pub async fn download_with_progress(
     let site = Site::from_url(&url)?;
 
     // 3. 下載
-    site.download(&state.client, &app_handle, url, save_path.clone())
-        .await?;
+    site.download(
+        &state.client,
+        &app_handle,
+        url,
+        save_path.clone(),
+        state.download_cancelled.clone(),
+    )
+    .await?;
 
     Ok(save_path.to_string_lossy().to_string())
 }

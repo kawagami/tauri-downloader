@@ -1,17 +1,21 @@
 use crate::db;
 use crate::providers::Site; // 引入我們定義的 Enum
 use clipboard::{ClipboardContext, ClipboardProvider};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
 use std::{thread, time::Duration};
 use tauri::{AppHandle, Emitter};
 
 const MONITOR_INTERVAL_MS: u64 = 500;
 
-pub fn start_clipboard_monitor(app_handle: AppHandle) {
+pub fn start_clipboard_monitor(app_handle: AppHandle, running: Arc<AtomicBool>) {
     thread::spawn(move || {
         let mut last_content = String::new();
         let mut ctx: ClipboardContext = ClipboardProvider::new().expect("Failed to init clipboard");
 
-        loop {
+        while running.load(Ordering::Relaxed) {
             // 1. 獲取剪貼簿內容
             if let Ok(current_content) = ctx.get_contents() {
                 // 內容變化且非空

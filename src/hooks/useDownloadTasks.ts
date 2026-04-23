@@ -118,6 +118,7 @@ export function useDownloadTasks(baseTasks: Task[], onRemoveTask: (url: string) 
     // 🔸 外部可呼叫的停止方法
     const stopBatchDownload = () => {
         shouldStop.current = true;
+        invoke("cancel_download");
     };
 
     return {
