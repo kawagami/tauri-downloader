@@ -3,6 +3,18 @@
 import React from "react";
 import { DownloadableTask } from "../types";
 
+const formatSpeed = (bps: number) => {
+    if (bps < 1024) return `${bps.toFixed(0)} B/s`;
+    if (bps < 1024 * 1024) return `${(bps / 1024).toFixed(1)} KB/s`;
+    return `${(bps / (1024 * 1024)).toFixed(1)} MB/s`;
+};
+
+const formatTime = (secs: number) => {
+    if (!isFinite(secs) || secs <= 0) return "計算中";
+    if (secs < 60) return `${Math.ceil(secs)}s`;
+    return `${Math.floor(secs / 60)}m ${Math.ceil(secs % 60)}s`;
+};
+
 interface TaskListViewProps {
     tasks: DownloadableTask[];
     onRemoveTask: (url: string) => void;
@@ -89,8 +101,10 @@ export const TaskListView: React.FC<TaskListViewProps> = ({
                                             style={{ width: `${task.progress ?? 0}%` }}
                                         />
                                     </div>
-                                    <div className="text-xs text-gray-500 mt-1">
-                                        {(task.progress ?? 0).toFixed(1)}%
+                                    <div className="text-xs text-gray-500 mt-1" style={{ lineHeight: "1.6" }}>
+                                        <div>{(task.progress ?? 0).toFixed(1)}%</div>
+                                        {task.speed != null && <div>{formatSpeed(task.speed)}</div>}
+                                        {task.timeRemaining != null && <div>{formatTime(task.timeRemaining)}</div>}
                                     </div>
                                 </>
                             ) : task.status === "done" ? (

@@ -1,4 +1,4 @@
-use crate::{providers::ClipboardPayload, state::AppState};
+use crate::{download_core::DownloadManager, providers::ClipboardPayload, state::AppState};
 
 use futures_util::StreamExt;
 use regex::Regex;
@@ -18,6 +18,8 @@ use url::Url;
 struct DownloadProgress {
     url: String,
     progress: f64,
+    speed_bytes_per_sec: f64,
+    time_remaining_secs: f64,
 }
 
 /// 驗證 wnacg URL 並回傳規範化的 URL 字串
@@ -198,6 +200,8 @@ pub async fn download(
     let mut file = File::create(&save_path).map_err(|e| e.to_string())?;
     let mut downloaded: u64 = 0;
     let mut stream = resp.bytes_stream();
+    let mut manager = DownloadManager::new();
+    manager.start_download(total_size);
 
     while let Some(chunk) = stream.next().await {
         if cancelled.load(Ordering::Relaxed) {
@@ -210,13 +214,15 @@ pub async fn download(
         file.write_all(&chunk).map_err(|e| e.to_string())?;
         downloaded += chunk.len() as u64;
 
-        let progress = (downloaded as f64 / total_size as f64) * 100.0;
+        let metrics = manager.calculate_metrics(downloaded, total_size);
         app_handle
             .emit(
                 "download_progress",
                 DownloadProgress {
                     url: source_url.clone(),
-                    progress,
+                    progress: metrics.percentage,
+                    speed_bytes_per_sec: metrics.speed_bytes_per_sec,
+                    time_remaining_secs: metrics.time_remaining_secs,
                 },
             )
             .map_err(|e| e.to_string())?;

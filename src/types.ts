@@ -18,6 +18,8 @@ export interface Task {
 
 export interface DownloadableTask extends Task {
     progress?: number;
+    speed?: number;        // bytes/sec
+    timeRemaining?: number; // seconds, Infinity = calculating
     status?: "idle" | "downloading" | "done" | "error";
     savePath?: string;
 }

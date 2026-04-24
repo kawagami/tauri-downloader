@@ -20,13 +20,20 @@ export function useDownloadTasks(baseTasks: Task[], onRemoveTask: (url: string) 
     useEffect(() => {
         let unlisten: (() => void) | undefined;
         const setup = async () => {
-            unlisten = await listen<{ url: string; progress: number }>(
+            unlisten = await listen<{
+                url: string;
+                progress: number;
+                speed_bytes_per_sec: number;
+                time_remaining_secs: number;
+            }>(
                 "download_progress",
                 (event) => {
-                    const { url, progress } = event.payload;
+                    const { url, progress, speed_bytes_per_sec, time_remaining_secs } = event.payload;
                     setTasks((prev) =>
                         prev.map((t) =>
-                            t.download_page_href === url ? { ...t, progress } : t
+                            t.download_page_href === url
+                                ? { ...t, progress, speed: speed_bytes_per_sec, timeRemaining: time_remaining_secs }
+                                : t
                         )
                     );
                 }
