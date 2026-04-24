@@ -19,10 +19,11 @@ export interface Task {
 
 export interface DownloadableTask extends Task {
     progress?: number;
-    speed?: number;        // bytes/sec
-    timeRemaining?: number; // seconds, Infinity = calculating
+    speed?: number;
+    timeRemaining?: number;
     status?: "idle" | "downloading" | "done" | "error";
     savePath?: string;
+    errorMessage?: string;
 }
 
 export interface ClipboardPayload {

@@ -65,10 +65,10 @@ export function useDownloadTasks(baseTasks: Task[], onRemoveTask: (url: string) 
                         : t
                 )
             );
-        } catch {
+        } catch (err) {
             setTasks((prev) =>
                 prev.map((t) =>
-                    t.url === task.url ? { ...t, status: "error" } : t
+                    t.url === task.url ? { ...t, status: "error", errorMessage: String(err) } : t
                 )
             );
         }
@@ -113,10 +113,9 @@ export function useDownloadTasks(baseTasks: Task[], onRemoveTask: (url: string) 
                 onRemoveTask(task.url);
                 await new Promise((resolve) => setTimeout(resolve, 1000));
             } catch (err) {
-                console.error(`[Batch] 錯誤: ${task.title}`, err);
                 setTasks((prev) =>
                     prev.map((t) =>
-                        t.url === task.url ? { ...t, status: "error" } : t
+                        t.url === task.url ? { ...t, status: "error", errorMessage: String(err) } : t
                     )
                 );
             }

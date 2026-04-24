@@ -117,7 +117,7 @@ export const TaskListView: React.FC<TaskListViewProps> = ({
                             ) : task.status === "done" ? (
                                 <span className="text-green-600">完成 ✅</span>
                             ) : task.status === "error" ? (
-                                <span className="text-red-500">錯誤 ❌</span>
+                                <span className="text-red-500" title={task.errorMessage}>錯誤 ❌</span>
                             ) : (
                                 <span>-</span>
                             )}

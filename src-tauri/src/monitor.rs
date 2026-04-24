@@ -2,20 +2,24 @@ use crate::db;
 use crate::providers::Site;
 use crate::state::AppState;
 use clipboard::{ClipboardContext, ClipboardProvider};
+use std::collections::HashMap;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
 };
+use std::time::Instant;
 use std::{thread, time::Duration};
 use tauri::{AppHandle, Emitter, Manager};
 
 const MONITOR_INTERVAL_MS: u64 = 500;
+const URL_THROTTLE_SECS: u64 = 30;
 
 pub fn start_clipboard_monitor(app_handle: AppHandle, running: Arc<AtomicBool>) {
     thread::spawn(move || {
         let mut ctx: ClipboardContext = ClipboardProvider::new().expect("Failed to init clipboard");
         // 啟動時先讀取當前剪貼簿，避免把舊內容當新內容處理
         let mut last_content = ctx.get_contents().unwrap_or_default();
+        let mut recent_urls: HashMap<String, Instant> = HashMap::new();
 
         while running.load(Ordering::Relaxed) {
             let paused = app_handle
@@ -33,13 +37,17 @@ pub fn start_clipboard_monitor(app_handle: AppHandle, running: Arc<AtomicBool>) 
                 // 內容變化且非空
                 if !current_content.is_empty() && current_content != last_content {
                     if let Ok(site) = Site::from_url(&current_content) {
-                        // 3. 執行該網站的驗證
                         if let Ok(normalized_url) = site.validate(&current_content) {
-                            println!(
-                                "Monitor: 偵測到有效 {} 連結: {}",
-                                site.to_string(),
-                                normalized_url
-                            );
+                            // 節流：30 秒內同一 URL 不重複抓取
+                            let now = Instant::now();
+                            recent_urls.retain(|_, t| now.duration_since(*t).as_secs() < URL_THROTTLE_SECS);
+
+                            if recent_urls.contains_key(&normalized_url) {
+                                last_content = current_content;
+                                continue;
+                            }
+                            recent_urls.insert(normalized_url.clone(), now);
+                            println!("Monitor: 偵測到有效 {} 連結: {}", site.to_string(), normalized_url);
 
                             let handle = app_handle.clone();
                             let url_to_fetch = normalized_url.clone();
