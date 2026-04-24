@@ -2,6 +2,7 @@ use crate::db;
 use crate::providers::Site;
 use crate::state::AppState;
 use clipboard::{ClipboardContext, ClipboardProvider};
+use sanitize_filename::sanitize;
 use std::collections::HashMap;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -56,12 +57,26 @@ pub fn start_clipboard_monitor(app_handle: AppHandle, running: Arc<AtomicBool>) 
                             tauri::async_runtime::spawn(async move {
                                 match site.fetch_details(&handle, &url_to_fetch).await {
                                     Ok(payload) => {
+                                        // 檢查下載目錄是否已有同名檔案
+                                        let already_exists = handle
+                                            .path()
+                                            .download_dir()
+                                            .ok()
+                                            .map(|dir| {
+                                                dir.join(format!("{}.zip", sanitize(&payload.title)))
+                                                    .exists()
+                                            })
+                                            .unwrap_or(false);
+
+                                        if already_exists {
+                                            return;
+                                        }
+
                                         match db::insert_task(&handle, &payload) {
                                             Ok(true) => {
-                                                // 真正新增才通知前端
                                                 let _ = handle.emit("new-valid-url-payload", payload);
                                             }
-                                            Ok(false) => {} // 已存在，略過
+                                            Ok(false) => {}
                                             Err(e) => eprintln!("DB Error: {:?}", e),
                                         }
                                     }
