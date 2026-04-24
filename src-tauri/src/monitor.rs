@@ -13,8 +13,9 @@ const MONITOR_INTERVAL_MS: u64 = 500;
 
 pub fn start_clipboard_monitor(app_handle: AppHandle, running: Arc<AtomicBool>) {
     thread::spawn(move || {
-        let mut last_content = String::new();
         let mut ctx: ClipboardContext = ClipboardProvider::new().expect("Failed to init clipboard");
+        // 啟動時先讀取當前剪貼簿，避免把舊內容當新內容處理
+        let mut last_content = ctx.get_contents().unwrap_or_default();
 
         while running.load(Ordering::Relaxed) {
             let paused = app_handle
