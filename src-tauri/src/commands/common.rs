@@ -39,3 +39,8 @@ pub fn remove_all_tasks(app_handle: AppHandle) -> Result<(), String> {
 pub fn cancel_download(state: State<'_, AppState>) {
     state.download_cancelled.store(true, Ordering::Relaxed);
 }
+
+#[tauri::command]
+pub fn set_monitor_paused(state: State<'_, AppState>, paused: bool) {
+    state.monitor_paused.store(paused, Ordering::Relaxed);
+}

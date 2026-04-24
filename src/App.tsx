@@ -1,9 +1,9 @@
 // src/App.tsx
 
 import React, { useCallback } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import "./App.css";
 
-// 引入自訂 Hooks 和元件
 import { useTaskManager } from './hooks/useTaskManager';
 import { useClipboardMonitor } from './hooks/useClipboardMonitor';
 import { TaskInputForm } from './components/TaskInputForm';
@@ -12,18 +12,20 @@ import { TaskList } from './components/TaskList';
 
 function App() {
 
-  // 1. 呼叫核心邏輯 Hooks
-  const { tasks, addTask, removeTask, removeAllTasks } = useTaskManager();
-  // 將 addTask 傳入 useClipboardMonitor
+  const { tasks, addTask, removeTask, removeAllTasks, reloadTasks } = useTaskManager();
   const {
     monitorClipboard,
     setMonitorClipboard,
   } = useClipboardMonitor(addTask, tasks);
 
-  // 3. 處理監控切換 (TaskInputForm 的 onMonitorChange)
-  const handleMonitorChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    setMonitorClipboard(e.target.checked);
-  }, [setMonitorClipboard]);
+  const handleMonitorChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const enabled = e.target.checked;
+    setMonitorClipboard(enabled);
+    await invoke("set_monitor_paused", { paused: !enabled });
+    if (enabled) {
+      await reloadTasks(); // 重新載入，補上暫停期間的任務
+    }
+  }, [setMonitorClipboard, reloadTasks]);
 
 
   return (

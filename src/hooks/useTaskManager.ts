@@ -14,55 +14,40 @@ export const useTaskManager = (): UseTaskManager => {
     // 🔹 使用 useRef 儲存音效實例，避免每次 render 重新創建
     const audioRef = useRef<HTMLAudioElement | null>(null);
 
+    const reloadTasks = useCallback(async () => {
+        try {
+            const result = await invoke<Task[]>("load_all_tasks");
+            setTasks(result);
+        } catch (err) {
+            console.error("[TaskManager] 讀取任務失敗", err);
+        }
+    }, []);
+
     // 🔹 1️⃣ 啟動時從 SQLite 載入所有任務
-    useEffect(() => {// 初始化音效
+    useEffect(() => {
         audioRef.current = new Audio('/ding.mp3');
-
-        const loadTasks = async () => {
-            try {
-                const result = await invoke<Task[]>("load_all_tasks");
-                setTasks(result);
-                console.log(`[TaskManager] 載入 ${result.length} 個任務`);
-            } catch (err) {
-                console.error("[TaskManager] 讀取任務失敗", err);
-            }
-        };
-
-        loadTasks();
+        reloadTasks();
     }, []);
 
 
-    // 🔹 2️⃣ 新增任務函數
+    const tasksRef = useRef<Task[]>([]);
+    useEffect(() => {
+        tasksRef.current = tasks;
+    }, [tasks]);
+
+    // 🔹 2️⃣ 新增任務函數（stable reference，不依賴 tasks）
     const addTask = useCallback(async (payload: ClipboardPayload) => {
-        // 避免重複任務
-        if (tasks.some(task => task.url === payload.url)) {
-            console.warn(`[TaskManager] 任務已存在: ${payload.url}`);
+        if (tasksRef.current.some(task => task.url === payload.url)) {
             return;
         }
 
-        try {
-            // // 可呼叫後端指令，例如下載 URL
-            // await invoke("download_with_progress", { url: payload.download_page_href, title: payload.title });
+        setTasks(prev => [...prev, payload]);
 
-            // 同步更新前端 state
-            setTasks(prevTasks => [...prevTasks, payload]);
-
-            // 🔹 播放音效
-            if (audioRef.current) {
-                audioRef.current.currentTime = 0; // 強制回到開頭，避免連續觸發時沒聲音
-                audioRef.current
-                    .play()
-                    .catch(err => {
-                        // 瀏覽器可能會攔截未經使用者互動的自動播放
-                        console.warn("[TaskManager] 音效播放被攔截:", err);
-                    });
-            }
-
-            console.log(`[TaskManager] 成功新增任務: ${payload.title}`);
-        } catch (error) {
-            console.error("[TaskManager] 呼叫後端 download_with_progress 發生錯誤:", error);
+        if (audioRef.current) {
+            audioRef.current.currentTime = 0;
+            audioRef.current.play().catch(() => {});
         }
-    }, [tasks]);
+    }, []);
 
     const removeTask = useCallback(async (url: string) => {
         try {
@@ -87,5 +72,6 @@ export const useTaskManager = (): UseTaskManager => {
         addTask,
         removeTask,
         removeAllTasks,
+        reloadTasks,
     };
 };

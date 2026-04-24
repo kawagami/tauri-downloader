@@ -41,12 +41,12 @@ pub fn init_db(app_handle: &AppHandle) -> Result<Connection> {
     Ok(conn)
 }
 
-/// 新增任務資料
-pub fn insert_task(app_handle: &AppHandle, payload: &ClipboardPayload) -> Result<()> {
+/// 新增任務資料，回傳是否實際插入（false = 已存在略過）
+pub fn insert_task(app_handle: &AppHandle, payload: &ClipboardPayload) -> Result<bool> {
     let state = app_handle.state::<AppState>();
     let conn = state.db.lock().unwrap();
 
-    conn.execute(
+    let affected = conn.execute(
         "INSERT OR IGNORE INTO tasks (url, title, image, download_page_href, created_at)
          VALUES (?1, ?2, ?3, ?4, ?5)",
         params![
@@ -58,7 +58,7 @@ pub fn insert_task(app_handle: &AppHandle, payload: &ClipboardPayload) -> Result
         ],
     )?;
 
-    Ok(())
+    Ok(affected > 0)
 }
 
 /// 取得所有任務資料
