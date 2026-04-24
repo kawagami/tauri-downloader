@@ -78,28 +78,6 @@ pub fn get_all_tasks(app_handle: &AppHandle) -> Result<Vec<ClipboardPayload>> {
     Ok(tasks)
 }
 
-/// 取得指定 URL 的任務
-pub fn get_task_by_url(app_handle: &AppHandle, url: &str) -> Result<Option<ClipboardPayload>> {
-    let state = app_handle.state::<AppState>();
-    let conn = state.db.lock().unwrap();
-
-    let mut stmt =
-        conn.prepare("SELECT url, title, image, download_page_href FROM tasks WHERE url = ?1")?;
-
-    let mut rows = stmt.query(params![url])?;
-
-    if let Some(row) = rows.next()? {
-        Ok(Some(ClipboardPayload {
-            url: row.get(0)?,
-            title: row.get(1)?,
-            image: row.get(2)?,
-            download_page_href: row.get(3)?,
-        }))
-    } else {
-        Ok(None)
-    }
-}
-
 /// 刪除指定 URL 的任務
 pub fn delete_task_by_url(app_handle: &AppHandle, url: &str) -> Result<()> {
     let state = app_handle.state::<AppState>();
