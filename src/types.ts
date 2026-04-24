@@ -31,6 +31,7 @@ export interface ClipboardPayload {
     title: string;
     image: string;
     download_page_href: string;
+    created_at: number;
 }
 
 export type AddTaskFunction = (payload: ClipboardPayload) => Promise<void>;
