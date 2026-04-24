@@ -21,6 +21,7 @@ pub fn run() {
     let monitor_running = Arc::new(AtomicBool::new(true));
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_window_state::Builder::default().build())
         .plugin(tauri_plugin_opener::init())
         .setup(move |app| {
             let db = init_db(app.handle())?;
