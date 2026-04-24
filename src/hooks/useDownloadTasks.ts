@@ -10,7 +10,8 @@ export function useDownloadTasks(baseTasks: Task[], onRemoveTask: (url: string) 
         baseTasks.map((t) => ({ ...t, status: "idle", progress: 0 }))
     );
     const [isBatchDownloading, setIsBatchDownloading] = useState(false);
-    const shouldStop = useRef(false); // 🔹 用 useRef 存放停止旗標
+    const [batchProgress, setBatchProgress] = useState({ current: 0, total: 0 });
+    const shouldStop = useRef(false);
 
     useEffect(() => {
         setTasks(prev => {
@@ -77,16 +78,20 @@ export function useDownloadTasks(baseTasks: Task[], onRemoveTask: (url: string) 
     // --- 批次下載 ---
     const handleDownloadAllSequentially = async () => {
         if (isBatchDownloading) return;
-        shouldStop.current = false; // 重設停止旗標
+        shouldStop.current = false;
         setIsBatchDownloading(true);
 
+        const pending = tasks.filter(t => t.status === "idle" || t.status === "error");
+        setBatchProgress({ current: 0, total: pending.length });
+        let current = 0;
+
         for (const task of tasks) {
-            if (shouldStop.current) {
-                console.log("🟥 已手動停止批次下載");
-                break;
-            }
+            if (shouldStop.current) break;
 
             if (task.status !== "idle" && task.status !== "error") continue;
+
+            current += 1;
+            setBatchProgress(prev => ({ ...prev, current }));
 
             setTasks((prev) =>
                 prev.map((t) =>
@@ -135,7 +140,8 @@ export function useDownloadTasks(baseTasks: Task[], onRemoveTask: (url: string) 
         setTasks,
         handleDownload,
         handleDownloadAllSequentially,
-        stopBatchDownload,  // 👈 新增這個
-        isBatchDownloading
+        stopBatchDownload,
+        isBatchDownloading,
+        batchProgress,
     };
 }

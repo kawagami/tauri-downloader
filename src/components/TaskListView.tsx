@@ -23,6 +23,7 @@ interface TaskListViewProps {
     onDownloadAll: () => void;
     onStopDownloadAll: () => void;
     isBatchDownloading: boolean;
+    batchProgress: { current: number; total: number };
 }
 
 export const TaskListView: React.FC<TaskListViewProps> = ({
@@ -33,6 +34,7 @@ export const TaskListView: React.FC<TaskListViewProps> = ({
     onDownloadAll,
     onStopDownloadAll,
     isBatchDownloading,
+    batchProgress,
 }) => (
     <div className="task-list-container">
         <div style={{ marginBottom: "10px" }}>
@@ -51,7 +53,7 @@ export const TaskListView: React.FC<TaskListViewProps> = ({
                     onClick={onStopDownloadAll}
                     style={{ marginLeft: "10px", background: "#f87171", color: "white" }}
                 >
-                    停止下載
+                    停止下載 ({batchProgress.current} / {batchProgress.total})
                 </button>
             )}
         </div>

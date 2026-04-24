@@ -17,8 +17,9 @@ export const TaskList = ({
         tasks: downloadTasks,
         handleDownload,
         handleDownloadAllSequentially,
-        stopBatchDownload, // ✅ 新增這個
+        stopBatchDownload,
         isBatchDownloading,
+        batchProgress,
     } = useDownloadTasks(tasks, onRemoveTask);
 
     return (
@@ -28,8 +29,9 @@ export const TaskList = ({
             onRemoveAll={onRemoveAll}
             onDownload={handleDownload}
             onDownloadAll={handleDownloadAllSequentially}
-            onStopDownloadAll={stopBatchDownload} // ✅ 新增這個 prop
+            onStopDownloadAll={stopBatchDownload}
             isBatchDownloading={isBatchDownloading}
+            batchProgress={batchProgress}
         />
     );
 };
