@@ -61,6 +61,7 @@ export const TaskListView: React.FC<TaskListViewProps> = ({
                 <tr>
                     <th>標題</th>
                     <th>預覽圖</th>
+                    <th>新增時間</th>
                     <th>進度</th>
                     <th>操作</th>
                 </tr>
@@ -91,6 +92,12 @@ export const TaskListView: React.FC<TaskListViewProps> = ({
                             ) : (
                                 <span>無圖片</span>
                             )}
+                        </td>
+
+                        <td style={{ fontSize: "0.75rem", color: "#6b7280", whiteSpace: "nowrap" }}>
+                            {task.created_at
+                                ? new Date(task.created_at * 1000).toLocaleString()
+                                : "-"}
                         </td>
                         <td>
                             {task.status === "downloading" ? (

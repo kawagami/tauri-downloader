@@ -26,10 +26,17 @@ pub fn init_db(app_handle: &AppHandle) -> Result<Connection> {
             url TEXT UNIQUE NOT NULL,
             title TEXT,
             image TEXT,
-            download_page_href TEXT
+            download_page_href TEXT,
+            created_at INTEGER DEFAULT (unixepoch())
         )",
         [],
     )?;
+
+    // 既有資料庫 migration：欄位不存在時才加入，舊資料以 0 填充
+    conn.execute(
+        "ALTER TABLE tasks ADD COLUMN created_at INTEGER DEFAULT 0",
+        [],
+    ).ok();
 
     Ok(conn)
 }
@@ -40,13 +47,14 @@ pub fn insert_task(app_handle: &AppHandle, payload: &ClipboardPayload) -> Result
     let conn = state.db.lock().unwrap();
 
     conn.execute(
-        "INSERT OR IGNORE INTO tasks (url, title, image, download_page_href)
-         VALUES (?1, ?2, ?3, ?4)",
+        "INSERT OR IGNORE INTO tasks (url, title, image, download_page_href, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5)",
         params![
             payload.url,
             payload.title,
             payload.image,
-            payload.download_page_href
+            payload.download_page_href,
+            payload.created_at,
         ],
     )?;
 
@@ -58,8 +66,9 @@ pub fn get_all_tasks(app_handle: &AppHandle) -> Result<Vec<ClipboardPayload>> {
     let state = app_handle.state::<AppState>();
     let conn = state.db.lock().unwrap();
 
-    let mut stmt =
-        conn.prepare("SELECT url, title, image, download_page_href FROM tasks ORDER BY id ASC")?;
+    let mut stmt = conn.prepare(
+        "SELECT url, title, image, download_page_href, created_at FROM tasks ORDER BY created_at ASC",
+    )?;
 
     let task_iter = stmt.query_map([], |row| {
         Ok(ClipboardPayload {
@@ -67,6 +76,7 @@ pub fn get_all_tasks(app_handle: &AppHandle) -> Result<Vec<ClipboardPayload>> {
             title: row.get(1)?,
             image: row.get(2)?,
             download_page_href: row.get(3)?,
+            created_at: row.get::<_, Option<i64>>(4)?.unwrap_or(0),
         })
     })?;
 

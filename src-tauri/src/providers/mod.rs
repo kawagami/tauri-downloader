@@ -15,9 +15,10 @@ pub enum Site {
 #[derive(Clone, Serialize, Deserialize)]
 pub struct ClipboardPayload {
     pub url: String,
-    pub title: String, // 依照 url 使用 reqwest get 取得的其一資訊
-    pub image: String, // 依照 url 使用 reqwest get 取得的其二資訊
+    pub title: String,
+    pub image: String,
     pub download_page_href: String,
+    pub created_at: i64,
 }
 
 impl Site {
@@ -50,7 +51,7 @@ impl Site {
             Site::Wnacg => wnacg::fetch_payload_details(handle, url.to_string())
                 .await
                 .map_err(|e| e.to_string()),
-            Site::NHentai => todo!(),
+            Site::NHentai => Err("NHentai fetch 尚未實作".to_string()),
         }
     }
 

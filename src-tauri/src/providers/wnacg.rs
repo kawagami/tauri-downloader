@@ -166,11 +166,17 @@ pub async fn fetch_payload_details(
     // 處理下載頁面路徑
     let download_page_href = format!("https://www.wnacg.com{}", download_page_href_raw);
 
+    let created_at = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+
     Ok(ClipboardPayload {
         url,
         title,
-        image, // 使用提取到的圖片路徑 (String)
+        image,
         download_page_href,
+        created_at,
     })
 }
 

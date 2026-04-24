@@ -14,6 +14,7 @@ export interface Task {
     title: string;
     image: string;
     download_page_href: string;
+    created_at: number; // Unix timestamp (seconds)
 }
 
 export interface DownloadableTask extends Task {
