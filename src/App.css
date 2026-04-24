@@ -144,16 +144,16 @@ body {
 }
 
 .thumbnail {
-  width: 100px;
+  width: 100%;
   height: auto;
   object-fit: contain;
   cursor: pointer;
+  display: block;
 }
 
 .image-container {
   position: relative;
-  display: inline-block;
-  /* 避免拉伸表格 */
+  display: block;
 }
 
 .image-preview {
