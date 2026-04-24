@@ -13,7 +13,10 @@ export function useDownloadTasks(baseTasks: Task[], onRemoveTask: (url: string) 
     const shouldStop = useRef(false); // 🔹 用 useRef 存放停止旗標
 
     useEffect(() => {
-        setTasks(baseTasks.map((t) => ({ ...t, status: "idle", progress: 0 })));
+        setTasks(prev => {
+            const prevMap = new Map(prev.map(t => [t.url, t]));
+            return baseTasks.map(t => prevMap.get(t.url) ?? { ...t, status: "idle", progress: 0 });
+        });
     }, [baseTasks]);
 
     // --- 監聽 tauri 傳來的進度事件 ---
