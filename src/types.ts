@@ -1,13 +1,5 @@
 // src/types.ts
 
-// 任務的狀態必須是這三種字串之一
-export enum TaskStatus {
-    Completed = 'Completed',
-    Downloading = 'Downloading',
-    Pending = 'Pending',
-    // ... 其他狀態
-}
-
 // 任務資料結構
 export interface Task {
     url: string;

@@ -1,7 +1,8 @@
 // TaskListView.tsx
 
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React from "react";
 import { DownloadableTask } from "../types";
+import { useColumnResize } from "../hooks/useColumnResize";
 
 const formatSpeed = (bps: number) => {
     if (bps < 1024) return `${bps.toFixed(0)} B/s`;
@@ -15,20 +16,8 @@ const formatTime = (secs: number) => {
     return `${Math.floor(secs / 60)}m ${Math.ceil(secs % 60)}s`;
 };
 
-const STORAGE_KEY = "task-table-col-widths";
-const DEFAULT_WIDTHS = [300, 80, 140, 120, 130];
 const COL_NAMES = ["標題", "預覽圖", "新增時間", "進度", "操作"];
-
-function loadWidths(): number[] {
-    try {
-        const raw = localStorage.getItem(STORAGE_KEY);
-        if (raw) {
-            const parsed = JSON.parse(raw);
-            if (Array.isArray(parsed) && parsed.length === DEFAULT_WIDTHS.length) return parsed;
-        }
-    } catch {}
-    return [...DEFAULT_WIDTHS];
-}
+const DEFAULT_WIDTHS = [300, 80, 140, 120, 130];
 
 interface TaskListViewProps {
     tasks: DownloadableTask[];
@@ -41,41 +30,7 @@ export const TaskListView: React.FC<TaskListViewProps> = ({
     onRemoveTask,
     onDownload,
 }) => {
-    const [colWidths, setColWidths] = useState<number[]>(loadWidths);
-    const dragging = useRef<{ colIndex: number; startX: number; startWidth: number } | null>(null);
-
-    const onMouseDown = useCallback((colIndex: number, e: React.MouseEvent) => {
-        e.preventDefault();
-        dragging.current = { colIndex, startX: e.clientX, startWidth: colWidths[colIndex] };
-    }, [colWidths]);
-
-    useEffect(() => {
-        const onMouseMove = (e: MouseEvent) => {
-            if (!dragging.current) return;
-            const { colIndex, startX, startWidth } = dragging.current;
-            const delta = e.clientX - startX;
-            const newWidth = Math.max(50, startWidth - delta);
-            setColWidths(prev => {
-                const next = [...prev];
-                next[colIndex] = newWidth;
-                return next;
-            });
-        };
-        const onMouseUp = () => {
-            if (!dragging.current) return;
-            dragging.current = null;
-            setColWidths(prev => {
-                localStorage.setItem(STORAGE_KEY, JSON.stringify(prev));
-                return prev;
-            });
-        };
-        window.addEventListener("mousemove", onMouseMove);
-        window.addEventListener("mouseup", onMouseUp);
-        return () => {
-            window.removeEventListener("mousemove", onMouseMove);
-            window.removeEventListener("mouseup", onMouseUp);
-        };
-    }, []);
+    const { colWidths, onMouseDown } = useColumnResize("task-table-col-widths", DEFAULT_WIDTHS);
 
     return (
         <div className="task-list-container">
