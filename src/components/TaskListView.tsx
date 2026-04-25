@@ -33,23 +33,13 @@ function loadWidths(): number[] {
 interface TaskListViewProps {
     tasks: DownloadableTask[];
     onRemoveTask: (url: string) => void;
-    onRemoveAll: () => void;
     onDownload: (task: DownloadableTask) => void;
-    onDownloadAll: () => void;
-    onStopDownloadAll: () => void;
-    isBatchDownloading: boolean;
-    batchProgress: { current: number; total: number };
 }
 
 export const TaskListView: React.FC<TaskListViewProps> = ({
     tasks,
     onRemoveTask,
-    onRemoveAll,
     onDownload,
-    onDownloadAll,
-    onStopDownloadAll,
-    isBatchDownloading,
-    batchProgress,
 }) => {
     const [colWidths, setColWidths] = useState<number[]>(loadWidths);
     const dragging = useRef<{ colIndex: number; startX: number; startWidth: number } | null>(null);
@@ -64,7 +54,7 @@ export const TaskListView: React.FC<TaskListViewProps> = ({
             if (!dragging.current) return;
             const { colIndex, startX, startWidth } = dragging.current;
             const delta = e.clientX - startX;
-            const newWidth = Math.max(50, startWidth + delta);
+            const newWidth = Math.max(50, startWidth - delta);
             setColWidths(prev => {
                 const next = [...prev];
                 next[colIndex] = newWidth;
@@ -89,42 +79,22 @@ export const TaskListView: React.FC<TaskListViewProps> = ({
 
     return (
         <div className="task-list-container">
-            <div style={{ marginBottom: "10px" }}>
-                <button onClick={onRemoveAll}>全部刪除</button>
-
-                {!isBatchDownloading ? (
-                    <button
-                        onClick={onDownloadAll}
-                        disabled={tasks.length === 0}
-                        style={{ marginLeft: "10px" }}
-                    >
-                        全部下載
-                    </button>
-                ) : (
-                    <button
-                        onClick={onStopDownloadAll}
-                        style={{ marginLeft: "10px", background: "#f87171", color: "white" }}
-                    >
-                        停止下載 ({batchProgress.current} / {batchProgress.total})
-                    </button>
-                )}
-            </div>
-
-            <table className="task-table" style={{ tableLayout: "fixed", width: colWidths.reduce((a, b) => a + b, 0) }}>
+            <table className="task-table" style={{ tableLayout: "fixed", width: "100%" }}>
                 <colgroup>
-                    {colWidths.map((w, i) => <col key={i} style={{ width: w }} />)}
+                    <col />
+                    {colWidths.slice(1).map((w, i) => <col key={i + 1} style={{ width: w }} />)}
                 </colgroup>
                 <thead>
                     <tr>
                         {COL_NAMES.map((name, i) => (
                             <th key={i} style={{ position: "relative", userSelect: "none", overflow: "hidden" }}>
                                 {name}
-                                {i < COL_NAMES.length - 1 && (
+                                {i > 0 && (
                                     <div
                                         onMouseDown={(e) => onMouseDown(i, e)}
                                         style={{
                                             position: "absolute",
-                                            right: 0,
+                                            left: 0,
                                             top: 0,
                                             bottom: 0,
                                             width: 6,

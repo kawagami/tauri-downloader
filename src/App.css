@@ -15,42 +15,36 @@ body {
 
 /* 整體容器佈局 */
 .container {
-  display: grid;
-  grid-template-areas:
-    "header header header"
-    "main side side";
-  grid-template-rows: auto 1fr;
-  grid-template-columns: 1fr auto auto;
-  min-height: 100vh;
-  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
   background-color: #f0f0f0;
 }
 
-/* 頂部標頭 */
-.header {
-  grid-area: header;
+/* 固定頂部工具列 */
+.sticky-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
   background-color: #e0f2e0;
-  padding: 10px 20px;
+  padding: 6px 10px;
   border-bottom: 1px solid #ccc;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.toolbar-actions {
   display: flex;
   align-items: center;
 }
 
-.menu span {
-  margin-right: 20px;
-  cursor: pointer;
-  color: #333;
-}
-
 /* 主要內容區塊 */
 .main-content {
-  grid-area: main;
-  display: flex;
-  flex-direction: column;
+  flex: 1;
+  overflow-y: auto;
   background-color: white;
   padding: 10px;
-  border: 1px solid #ccc;
-  margin-right: 10px;
 }
 
 /* 輸入區塊 */
@@ -93,7 +87,6 @@ body {
 /* 任務列表 */
 .task-list-container {
   flex: 1;
-  overflow-y: auto;
 }
 
 .task-table {
