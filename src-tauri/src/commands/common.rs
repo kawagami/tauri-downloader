@@ -36,6 +36,12 @@ pub fn remove_all_tasks(app_handle: AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
+pub fn update_task_status(app_handle: AppHandle, url: String, status: String) -> Result<(), String> {
+    db::update_task_status(&app_handle, &url, &status)
+        .map_err(|e| format!("更新狀態失敗: {:?}", e))
+}
+
+#[tauri::command]
 pub fn cancel_download(state: State<'_, AppState>) {
     state.download_cancelled.store(true, Ordering::Relaxed);
 }

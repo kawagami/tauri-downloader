@@ -27,16 +27,14 @@ pub fn init_db(app_handle: &AppHandle) -> Result<Connection> {
             title TEXT,
             image TEXT,
             download_page_href TEXT,
-            created_at INTEGER DEFAULT (unixepoch())
+            created_at INTEGER DEFAULT 0,
+            db_status TEXT NOT NULL DEFAULT 'idle'
         )",
         [],
     )?;
 
-    // 既有資料庫 migration：欄位不存在時才加入，舊資料以 0 填充
-    conn.execute(
-        "ALTER TABLE tasks ADD COLUMN created_at INTEGER DEFAULT 0",
-        [],
-    ).ok();
+    conn.execute("ALTER TABLE tasks ADD COLUMN created_at INTEGER DEFAULT 0", []).ok();
+    conn.execute("ALTER TABLE tasks ADD COLUMN db_status TEXT NOT NULL DEFAULT 'idle'", []).ok();
 
     Ok(conn)
 }
@@ -47,14 +45,15 @@ pub fn insert_task(app_handle: &AppHandle, payload: &ClipboardPayload) -> Result
     let conn = state.db.lock().unwrap();
 
     let affected = conn.execute(
-        "INSERT OR IGNORE INTO tasks (url, title, image, download_page_href, created_at)
-         VALUES (?1, ?2, ?3, ?4, ?5)",
+        "INSERT OR IGNORE INTO tasks (url, title, image, download_page_href, created_at, db_status)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
         params![
             payload.url,
             payload.title,
             payload.image,
             payload.download_page_href,
             payload.created_at,
+            payload.db_status,
         ],
     )?;
 
@@ -67,7 +66,7 @@ pub fn get_all_tasks(app_handle: &AppHandle) -> Result<Vec<ClipboardPayload>> {
     let conn = state.db.lock().unwrap();
 
     let mut stmt = conn.prepare(
-        "SELECT url, title, image, download_page_href, created_at FROM tasks ORDER BY created_at ASC",
+        "SELECT url, title, image, download_page_href, created_at, db_status FROM tasks ORDER BY created_at ASC",
     )?;
 
     let task_iter = stmt.query_map([], |row| {
@@ -77,6 +76,7 @@ pub fn get_all_tasks(app_handle: &AppHandle) -> Result<Vec<ClipboardPayload>> {
             image: row.get(2)?,
             download_page_href: row.get(3)?,
             created_at: row.get::<_, Option<i64>>(4)?.unwrap_or(0),
+            db_status: row.get::<_, Option<String>>(5)?.unwrap_or_else(|| "idle".to_string()),
         })
     })?;
 
@@ -93,6 +93,14 @@ pub fn delete_task_by_url(app_handle: &AppHandle, url: &str) -> Result<()> {
     let state = app_handle.state::<AppState>();
     let conn = state.db.lock().unwrap();
     conn.execute("DELETE FROM tasks WHERE url = ?1", params![url])?;
+    Ok(())
+}
+
+/// 更新任務的持久化狀態
+pub fn update_task_status(app_handle: &AppHandle, url: &str, status: &str) -> Result<()> {
+    let state = app_handle.state::<AppState>();
+    let conn = state.db.lock().unwrap();
+    conn.execute("UPDATE tasks SET db_status = ?1 WHERE url = ?2", params![status, url])?;
     Ok(())
 }
 

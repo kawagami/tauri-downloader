@@ -49,6 +49,7 @@ pub fn run() {
             commands::common::remove_all_tasks,
             commands::common::cancel_download,
             commands::common::set_monitor_paused,
+            commands::common::update_task_status,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

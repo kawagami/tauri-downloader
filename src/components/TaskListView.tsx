@@ -159,6 +159,10 @@ export const TaskListView: React.FC<TaskListViewProps> = ({
                                     <span className="text-green-600">完成 ✅</span>
                                 ) : task.status === "error" ? (
                                     <span className="text-red-500" title={task.errorMessage}>錯誤 ❌</span>
+                                ) : task.status === "not_found" ? (
+                                    <span className="text-red-400" title={task.errorMessage}>找不到 🚫</span>
+                                ) : task.status === "paused" ? (
+                                    <span style={{ color: "#f59e0b" }}>已暫停 ⏸</span>
                                 ) : (
                                     <span>-</span>
                                 )}

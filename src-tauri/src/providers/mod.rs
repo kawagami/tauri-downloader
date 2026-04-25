@@ -19,6 +19,7 @@ pub struct ClipboardPayload {
     pub image: String,
     pub download_page_href: String,
     pub created_at: i64,
+    pub db_status: String,
 }
 
 impl Site {
