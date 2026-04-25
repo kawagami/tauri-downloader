@@ -1,13 +1,12 @@
 // src/types.ts
 
-// 任務資料結構
 export interface Task {
     url: string;
     title: string;
     image: string;
     download_page_href: string;
     created_at: number;
-    db_status: string; // DB 持久化狀態: idle | paused | not_found | done
+    db_status: string;
 }
 
 export interface DownloadableTask extends Task {
@@ -26,14 +25,4 @@ export interface ClipboardPayload {
     download_page_href: string;
     created_at: number;
     db_status: string;
-}
-
-export type AddTaskFunction = (payload: ClipboardPayload) => Promise<void>;
-
-export interface UseTaskManager {
-    tasks: Task[];
-    addTask: (payload: ClipboardPayload) => Promise<void>;
-    removeTask: (url: string) => Promise<void>;
-    removeAllTasks: () => Promise<void>;
-    reloadTasks: () => Promise<void>;
 }

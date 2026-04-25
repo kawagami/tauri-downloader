@@ -10,6 +10,7 @@ import { useDownloadTasks } from './hooks/useDownloadTasks';
 import { Toolbar } from './components/Toolbar';
 import { TaskListView } from './components/TaskListView';
 
+
 function App() {
   const { tasks, addTask, removeTask, removeAllTasks, reloadTasks } = useTaskManager();
   const { monitorClipboard, setMonitorClipboard } = useClipboardMonitor(addTask, tasks);

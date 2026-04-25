@@ -1,6 +1,14 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { Task, ClipboardPayload, UseTaskManager } from '../types';
+import { Task, ClipboardPayload } from '../types';
+
+export interface UseTaskManager {
+    tasks: Task[];
+    addTask: (payload: ClipboardPayload) => Promise<void>;
+    removeTask: (url: string) => Promise<void>;
+    removeAllTasks: () => Promise<void>;
+    reloadTasks: () => Promise<void>;
+}
 
 /**
  * useTaskManager

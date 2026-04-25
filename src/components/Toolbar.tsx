@@ -1,7 +1,6 @@
 // Toolbar.tsx
 
 import React from "react";
-import { TaskInputForm } from "./TaskInputForm";
 
 interface ToolbarProps {
     monitorClipboard: boolean;
@@ -25,10 +24,15 @@ export const Toolbar: React.FC<ToolbarProps> = ({
     tasksEmpty,
 }) => (
     <div className="sticky-toolbar">
-        <TaskInputForm
-            monitorClipboard={monitorClipboard}
-            onMonitorChange={onMonitorChange}
-        />
+        <div className="checkbox-group">
+            <input
+                type="checkbox"
+                id="monitorClipboard"
+                checked={monitorClipboard}
+                onChange={onMonitorChange}
+            />
+            <label htmlFor="monitorClipboard">監控剪貼簿</label>
+        </div>
         <div className="toolbar-actions">
             <button onClick={onRemoveAll}>全部刪除</button>
             {!isBatchDownloading ? (

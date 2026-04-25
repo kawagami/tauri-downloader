@@ -2,7 +2,9 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { listen, Event } from '@tauri-apps/api/event';
-import { ClipboardPayload, Task, AddTaskFunction } from '../types';
+import { ClipboardPayload, Task } from '../types';
+
+type AddTaskFunction = (payload: ClipboardPayload) => Promise<void>;
 
 interface UseClipboardMonitor {
     monitorClipboard: boolean;
