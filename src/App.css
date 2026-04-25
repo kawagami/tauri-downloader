@@ -1,6 +1,5 @@
 /* src/App.css */
 
-/* 確保所有元素都使用 border-box 模型 */
 *,
 *::before,
 *::after {
@@ -13,7 +12,6 @@ body {
   background-color: #f0f0f0;
 }
 
-/* 整體容器佈局 */
 .container {
   display: flex;
   flex-direction: column;
@@ -21,7 +19,6 @@ body {
   background-color: #f0f0f0;
 }
 
-/* 固定頂部工具列 */
 .sticky-toolbar {
   position: sticky;
   top: 0;
@@ -39,42 +36,11 @@ body {
   align-items: center;
 }
 
-/* 主要內容區塊 */
 .main-content {
   flex: 1;
   overflow-y: auto;
   background-color: white;
   padding: 10px;
-}
-
-/* 輸入區塊 */
-.input-section {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  margin-bottom: 10px;
-}
-
-.input-group {
-  display: flex;
-  gap: 10px;
-  align-items: center;
-}
-
-.url-input {
-  flex: 1;
-  padding: 8px;
-  border: 1px solid #ccc;
-  border-radius: 4px;
-}
-
-.add-button {
-  padding: 8px 20px;
-  background-color: #4CAF50;
-  color: white;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
 }
 
 .checkbox-group {
@@ -84,7 +50,6 @@ body {
   color: #555;
 }
 
-/* 任務列表 */
 .task-list-container {
   flex: 1;
 }
@@ -101,39 +66,9 @@ body {
   text-align: left;
 }
 
-/* 狀態列 */
-.status-bar {
-  padding: 3px 8px;
-  border-radius: 4px;
-  color: white;
-  text-align: center;
-}
-
-.status-completed {
-  background-color: #4CAF50;
-  /* 綠色 */
-}
-
-/* 右側按鈕區塊 */
-.side-action-button {
-  grid-area: side;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  background-color: white;
-  border: 1px solid #ccc;
-  padding: 10px;
-}
-
-.side-action-button img {
-  width: 64px;
-  height: 64px;
-  cursor: pointer;
-}
-
 .image-container {
   position: relative;
-  display: inline-block;
+  display: block;
 }
 
 .thumbnail {
@@ -144,24 +79,17 @@ body {
   display: block;
 }
 
-.image-container {
-  position: relative;
-  display: block;
-}
-
 .image-preview {
   display: none;
   position: absolute;
   top: 0;
   right: 100%;
-  /* 往左側顯示 */
   z-index: 100;
   background: white;
   border: 1px solid #ccc;
   padding: 5px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
   white-space: nowrap;
-  /* 避免撐開表格 */
 }
 
 .image-preview img {

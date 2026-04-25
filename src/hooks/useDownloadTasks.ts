@@ -107,6 +107,7 @@ export function useDownloadTasks(baseTasks: Task[], onRemoveTask: (url: string) 
             setTasks(prev => prev.map(t =>
                 t.url === task.url ? { ...t, status: "done", progress: 100, savePath } : t
             ));
+            await persistStatus(task.url, "done");
         } catch (err) {
             await applyResult(task.url, err);
         }
