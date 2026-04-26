@@ -31,15 +31,32 @@ export const Toolbar: React.FC<ToolbarProps> = ({
     bandwidthKbps,
     onBandwidthChange,
 }) => (
-    <div className="sticky-toolbar">
-        <div className="checkbox-group">
-            <input
-                type="checkbox"
-                id="monitorClipboard"
-                checked={monitorClipboard}
-                onChange={onMonitorChange}
-            />
-            <label htmlFor="monitorClipboard">監控剪貼簿</label>
+    <div className="sticky-toolbar" style={{ flexDirection: "column", alignItems: "flex-start", gap: "6px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
+            <div className="checkbox-group">
+                <input
+                    type="checkbox"
+                    id="monitorClipboard"
+                    checked={monitorClipboard}
+                    onChange={onMonitorChange}
+                />
+                <label htmlFor="monitorClipboard">監控剪貼簿</label>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+                <input
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={bandwidthKbps === 0 ? "" : bandwidthKbps}
+                    placeholder="無限制"
+                    onChange={e => {
+                        const val = parseInt(e.target.value, 10);
+                        onBandwidthChange(isNaN(val) || val < 0 ? 0 : val);
+                    }}
+                    style={{ width: "80px" }}
+                />
+                <span style={{ fontSize: "12px" }}>KB/s</span>
+            </div>
         </div>
         <div className="toolbar-actions">
             <button onClick={onRemoveAll}>全部刪除</button>
@@ -66,19 +83,6 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                     停止下載 ({batchProgress.current} / {batchProgress.total})
                 </button>
             )}
-            <input
-                type="number"
-                min="0"
-                step="1"
-                value={bandwidthKbps === 0 ? "" : bandwidthKbps}
-                placeholder="無限制"
-                onChange={e => {
-                    const val = parseInt(e.target.value, 10);
-                    onBandwidthChange(isNaN(val) || val < 0 ? 0 : val);
-                }}
-                style={{ width: "80px", marginLeft: "10px" }}
-            />
-            <span style={{ marginLeft: "4px", fontSize: "12px" }}>KB/s</span>
         </div>
     </div>
 );
