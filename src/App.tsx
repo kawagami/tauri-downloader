@@ -1,6 +1,6 @@
 // src/App.tsx
 
-import React, { useCallback } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import "./App.css";
 
@@ -24,6 +24,20 @@ function App() {
     batchProgress,
   } = useDownloadTasks(tasks, removeTask);
 
+  const [bandwidthKbps, setBandwidthKbps] = useState<number>(() =>
+    Number(localStorage.getItem("bandwidthKbps") || "0")
+  );
+
+  useEffect(() => {
+    invoke("set_bandwidth_limit", { bytesPerSec: bandwidthKbps * 1024 });
+  }, []);
+
+  const handleBandwidthChange = useCallback(async (kbps: number) => {
+    setBandwidthKbps(kbps);
+    localStorage.setItem("bandwidthKbps", String(kbps));
+    await invoke("set_bandwidth_limit", { bytesPerSec: kbps * 1024 });
+  }, []);
+
   const handleMonitorChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const enabled = e.target.checked;
     setMonitorClipboard(enabled);
@@ -46,6 +60,8 @@ function App() {
         batchProgress={batchProgress}
         tasksEmpty={downloadTasks.length === 0}
         hasDoneTasks={downloadTasks.some(t => t.status === "done")}
+        bandwidthKbps={bandwidthKbps}
+        onBandwidthChange={handleBandwidthChange}
       />
       <main className="main-content">
         <TaskListView

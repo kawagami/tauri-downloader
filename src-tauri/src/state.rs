@@ -2,7 +2,7 @@
 use reqwest::Client;
 use rusqlite::Connection;
 use std::sync::{
-    atomic::AtomicBool,
+    atomic::{AtomicBool, AtomicU64},
     Arc, Mutex,
 };
 
@@ -12,6 +12,7 @@ pub struct AppState {
     pub monitor_running: Arc<AtomicBool>,
     pub monitor_paused: Arc<AtomicBool>,
     pub download_cancelled: Arc<AtomicBool>,
+    pub bandwidth_limit_bps: Arc<AtomicU64>, // 0 = 無限制
 }
 
 impl AppState {
@@ -22,6 +23,7 @@ impl AppState {
             monitor_running,
             monitor_paused: Arc::new(AtomicBool::new(false)),
             download_cancelled: Arc::new(AtomicBool::new(false)),
+            bandwidth_limit_bps: Arc::new(AtomicU64::new(0)),
         }
     }
 }

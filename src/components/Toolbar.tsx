@@ -13,6 +13,8 @@ interface ToolbarProps {
     batchProgress: { current: number; total: number };
     tasksEmpty: boolean;
     hasDoneTasks: boolean;
+    bandwidthKbps: number;
+    onBandwidthChange: (kbps: number) => void;
 }
 
 export const Toolbar: React.FC<ToolbarProps> = ({
@@ -26,6 +28,8 @@ export const Toolbar: React.FC<ToolbarProps> = ({
     batchProgress,
     tasksEmpty,
     hasDoneTasks,
+    bandwidthKbps,
+    onBandwidthChange,
 }) => (
     <div className="sticky-toolbar">
         <div className="checkbox-group">
@@ -62,6 +66,19 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                     停止下載 ({batchProgress.current} / {batchProgress.total})
                 </button>
             )}
+            <input
+                type="number"
+                min="0"
+                step="1"
+                value={bandwidthKbps === 0 ? "" : bandwidthKbps}
+                placeholder="無限制"
+                onChange={e => {
+                    const val = parseInt(e.target.value, 10);
+                    onBandwidthChange(isNaN(val) || val < 0 ? 0 : val);
+                }}
+                style={{ width: "80px", marginLeft: "10px" }}
+            />
+            <span style={{ marginLeft: "4px", fontSize: "12px" }}>KB/s</span>
         </div>
     </div>
 );

@@ -50,3 +50,8 @@ pub fn cancel_download(state: State<'_, AppState>) {
 pub fn set_monitor_paused(state: State<'_, AppState>, paused: bool) {
     state.monitor_paused.store(paused, Ordering::Relaxed);
 }
+
+#[tauri::command]
+pub fn set_bandwidth_limit(state: State<'_, AppState>, bytes_per_sec: u64) {
+    state.bandwidth_limit_bps.store(bytes_per_sec, Ordering::Relaxed);
+}

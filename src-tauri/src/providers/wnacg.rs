@@ -168,6 +168,7 @@ pub async fn download(
     file_url: String,   // 實際檔案下載網址
     save_path: PathBuf,
     cancelled: Arc<AtomicBool>,
+    bandwidth_limit_bps: u64, // 0 = 無限制
 ) -> Result<(), String> {
     let resp = client
         .get(&file_url)
@@ -188,6 +189,7 @@ pub async fn download(
     let mut stream = resp.bytes_stream();
     let mut manager = DownloadManager::new();
     manager.start_download(total_size);
+    let throttle_start = std::time::Instant::now();
 
     while let Some(chunk) = stream.next().await {
         if cancelled.load(Ordering::Relaxed) {
@@ -199,6 +201,16 @@ pub async fn download(
         let chunk = chunk.map_err(|e| e.to_string())?;
         file.write_all(&chunk).map_err(|e| e.to_string())?;
         downloaded += chunk.len() as u64;
+
+        if bandwidth_limit_bps > 0 {
+            let expected = std::time::Duration::from_secs_f64(
+                downloaded as f64 / bandwidth_limit_bps as f64,
+            );
+            let actual = throttle_start.elapsed();
+            if expected > actual {
+                tokio::time::sleep(expected - actual).await;
+            }
+        }
 
         let metrics = manager.calculate_metrics(downloaded, total_size);
         app_handle

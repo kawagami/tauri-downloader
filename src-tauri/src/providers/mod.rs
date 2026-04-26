@@ -70,13 +70,14 @@ impl Site {
         source_url: String,
         save_path: PathBuf,
         cancelled: Arc<AtomicBool>,
+        bandwidth_limit_bps: u64,
     ) -> Result<(), String> {
         match self {
             Site::Wnacg => {
                 let file_url = wnacg::get_file_url(app_handle, &source_url)
                     .await
                     .map_err(|e| e.to_string())?;
-                wnacg::download(client, app_handle, source_url, file_url, save_path, cancelled)
+                wnacg::download(client, app_handle, source_url, file_url, save_path, cancelled, bandwidth_limit_bps)
                     .await
             }
             Site::NHentai => Err("NHentai 下載尚未實作".to_string()),
