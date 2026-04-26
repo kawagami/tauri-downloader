@@ -55,3 +55,8 @@ pub fn set_monitor_paused(state: State<'_, AppState>, paused: bool) {
 pub fn set_bandwidth_limit(state: State<'_, AppState>, bytes_per_sec: u64) {
     state.bandwidth_limit_bps.store(bytes_per_sec, Ordering::Relaxed);
 }
+
+#[tauri::command]
+pub fn reorder_tasks(app_handle: AppHandle, urls: Vec<String>) -> Result<(), String> {
+    db::reorder_tasks(&app_handle, &urls).map_err(|e| format!("排序失敗: {:?}", e))
+}

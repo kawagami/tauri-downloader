@@ -22,6 +22,7 @@ function App() {
     stopBatchDownload,
     isBatchDownloading,
     batchProgress,
+    reorderTasks,
   } = useDownloadTasks(tasks, removeTask);
 
   const [bandwidthKbps, setBandwidthKbps] = useState<number>(() =>
@@ -63,6 +64,7 @@ function App() {
           tasks={downloadTasks}
           onRemoveTask={removeTask}
           onDownload={handleDownload}
+          onReorder={reorderTasks}
         />
       </main>
     </div>

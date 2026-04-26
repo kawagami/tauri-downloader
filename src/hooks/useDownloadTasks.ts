@@ -1,8 +1,9 @@
 // useDownloadTasks.ts
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { arrayMove } from "@dnd-kit/sortable";
 import { Task, DownloadableTask } from "../types";
 
 type UiStatus = NonNullable<DownloadableTask["status"]>;
@@ -169,6 +170,17 @@ export function useDownloadTasks(baseTasks: Task[], onRemoveTask: (url: string) 
         invoke("cancel_download");
     };
 
+    const reorderTasks = useCallback((activeUrl: string, overUrl: string) => {
+        setTasks(prev => {
+            const oldIndex = prev.findIndex(t => t.url === activeUrl);
+            const newIndex = prev.findIndex(t => t.url === overUrl);
+            if (oldIndex === -1 || newIndex === -1) return prev;
+            const next = arrayMove(prev, oldIndex, newIndex);
+            invoke("reorder_tasks", { urls: next.map(t => t.url) }).catch(() => {});
+            return next;
+        });
+    }, []);
+
     return {
         tasks,
         setTasks,
@@ -178,5 +190,6 @@ export function useDownloadTasks(baseTasks: Task[], onRemoveTask: (url: string) 
         stopBatchDownload,
         isBatchDownloading,
         batchProgress,
+        reorderTasks,
     };
 }

@@ -18,13 +18,16 @@ pub fn init_db(app_handle: &AppHandle) -> Result<Connection, Box<dyn std::error:
             image TEXT,
             download_page_href TEXT,
             created_at INTEGER DEFAULT 0,
-            db_status TEXT NOT NULL DEFAULT 'idle'
+            db_status TEXT NOT NULL DEFAULT 'idle',
+            sort_order INTEGER DEFAULT 0
         )",
         [],
     )?;
 
     conn.execute("ALTER TABLE tasks ADD COLUMN created_at INTEGER DEFAULT 0", []).ok();
     conn.execute("ALTER TABLE tasks ADD COLUMN db_status TEXT NOT NULL DEFAULT 'idle'", []).ok();
+    conn.execute("ALTER TABLE tasks ADD COLUMN sort_order INTEGER DEFAULT 0", []).ok();
+    conn.execute("UPDATE tasks SET sort_order = id WHERE sort_order = 0", []).ok();
 
     Ok(conn)
 }
@@ -35,8 +38,8 @@ pub fn insert_task(app_handle: &AppHandle, payload: &ClipboardPayload) -> Result
     let conn = state.db.lock().unwrap();
 
     let affected = conn.execute(
-        "INSERT OR IGNORE INTO tasks (url, title, image, download_page_href, created_at, db_status)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        "INSERT OR IGNORE INTO tasks (url, title, image, download_page_href, created_at, db_status, sort_order)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM tasks))",
         params![
             payload.url,
             payload.title,
@@ -56,7 +59,7 @@ pub fn get_all_tasks(app_handle: &AppHandle) -> Result<Vec<ClipboardPayload>> {
     let conn = state.db.lock().unwrap();
 
     let mut stmt = conn.prepare(
-        "SELECT url, title, image, download_page_href, created_at, db_status FROM tasks ORDER BY created_at ASC",
+        "SELECT url, title, image, download_page_href, created_at, db_status FROM tasks ORDER BY sort_order ASC",
     )?;
 
     let task_iter = stmt.query_map([], |row| {
@@ -91,6 +94,19 @@ pub fn update_task_status(app_handle: &AppHandle, url: &str, status: &str) -> Re
     let state = app_handle.state::<AppState>();
     let conn = state.db.lock().unwrap();
     conn.execute("UPDATE tasks SET db_status = ?1 WHERE url = ?2", params![status, url])?;
+    Ok(())
+}
+
+/// 更新任務排序順序
+pub fn reorder_tasks(app_handle: &AppHandle, urls: &[String]) -> Result<()> {
+    let state = app_handle.state::<AppState>();
+    let conn = state.db.lock().unwrap();
+    for (i, url) in urls.iter().enumerate() {
+        conn.execute(
+            "UPDATE tasks SET sort_order = ?1 WHERE url = ?2",
+            params![(i + 1) as i64, url],
+        )?;
+    }
     Ok(())
 }
 

@@ -1,6 +1,20 @@
 // TaskListView.tsx
 
 import React from "react";
+import {
+    DndContext,
+    closestCenter,
+    PointerSensor,
+    useSensor,
+    useSensors,
+    DragEndEvent,
+} from "@dnd-kit/core";
+import {
+    SortableContext,
+    verticalListSortingStrategy,
+    useSortable,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import { DownloadableTask } from "../types";
 import { useColumnResize } from "../hooks/useColumnResize";
 
@@ -19,129 +33,178 @@ const formatTime = (secs: number) => {
 const COL_NAMES = ["標題", "預覽圖", "新增時間", "進度", "操作"];
 const DEFAULT_WIDTHS = [300, 80, 140, 120, 130];
 
+interface SortableRowProps {
+    task: DownloadableTask;
+    onRemoveTask: (url: string) => void;
+    onDownload: (task: DownloadableTask) => void;
+}
+
+const SortableRow: React.FC<SortableRowProps> = ({ task, onRemoveTask, onDownload }) => {
+    const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: task.url });
+
+    const rowStyle: React.CSSProperties = {
+        transform: CSS.Translate.toString(transform),
+        transition,
+        opacity: isDragging ? 0.5 : 1,
+    };
+
+    return (
+        <tr ref={setNodeRef} style={rowStyle}>
+            <td
+                {...attributes}
+                {...listeners}
+                style={{ cursor: "grab", textAlign: "center", color: "#9ca3af", userSelect: "none", width: 20 }}
+            >
+                ⠿
+            </td>
+            <td style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                <a
+                    href={task.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    style={{ textDecoration: 'none', color: '#3b82f6' }}
+                    title={task.url}
+                >
+                    {task.title}
+                </a>
+            </td>
+
+            <td>
+                {task.image ? (
+                    <div className="image-container">
+                        <img src={task.image} alt={task.title} className="thumbnail" />
+                        <div className="image-preview">
+                            <img src={task.image} alt={task.title} />
+                        </div>
+                    </div>
+                ) : (
+                    <span>無圖片</span>
+                )}
+            </td>
+
+            <td style={{ fontSize: "0.75rem", color: "#6b7280", whiteSpace: "nowrap", overflow: "hidden" }}>
+                {task.created_at
+                    ? new Date(task.created_at * 1000).toLocaleString()
+                    : "-"}
+            </td>
+            <td>
+                {task.status === "downloading" ? (
+                    <>
+                        {(task.progress ?? 0) < 0 ? (
+                            <div className="progress-indeterminate" />
+                        ) : (
+                            <div style={{ background: "#e5e7eb", height: 8, borderRadius: 4, width: "100%" }}>
+                                <div style={{
+                                    background: "#22c55e",
+                                    height: 8,
+                                    borderRadius: 4,
+                                    width: `${task.progress ?? 0}%`,
+                                }} />
+                            </div>
+                        )}
+                        <div style={{ fontSize: "0.75rem", color: "#6b7280", marginTop: 4, lineHeight: "1.6" }}>
+                            <div>{(task.progress ?? 0) < 0 ? "計算中" : `${(task.progress ?? 0).toFixed(1)}%`}</div>
+                            {task.speed != null && task.speed > 0 && <div>{formatSpeed(task.speed)}</div>}
+                            {task.timeRemaining != null && task.timeRemaining > 0 && <div>{formatTime(task.timeRemaining)}</div>}
+                        </div>
+                    </>
+                ) : task.status === "done" ? (
+                    <span className="text-green-600">完成 ✅</span>
+                ) : task.status === "error" ? (
+                    <span className="text-red-500" title={task.errorMessage}>錯誤 ❌</span>
+                ) : task.status === "not_found" ? (
+                    <span className="text-red-400" title={task.errorMessage}>找不到 🚫</span>
+                ) : task.status === "paused" ? (
+                    <span style={{ color: "#f59e0b" }}>已暫停 ⏸</span>
+                ) : (
+                    <span>-</span>
+                )}
+            </td>
+            <td>
+                <button onClick={() => onRemoveTask(task.url)}>刪除</button>
+                <button
+                    onClick={() => onDownload(task)}
+                    disabled={task.status === "downloading"}
+                    style={{ marginLeft: "5px" }}
+                >
+                    {task.status === "downloading" ? "下載中..." : "下載"}
+                </button>
+            </td>
+        </tr>
+    );
+};
+
 interface TaskListViewProps {
     tasks: DownloadableTask[];
     onRemoveTask: (url: string) => void;
     onDownload: (task: DownloadableTask) => void;
+    onReorder: (activeUrl: string, overUrl: string) => void;
 }
 
 export const TaskListView: React.FC<TaskListViewProps> = ({
     tasks,
     onRemoveTask,
     onDownload,
+    onReorder,
 }) => {
     const { colWidths, onMouseDown } = useColumnResize("task-table-col-widths", DEFAULT_WIDTHS);
 
+    const sensors = useSensors(useSensor(PointerSensor));
+
+    const handleDragEnd = (event: DragEndEvent) => {
+        const { active, over } = event;
+        if (over && active.id !== over.id) {
+            onReorder(active.id as string, over.id as string);
+        }
+    };
+
     return (
         <div className="task-list-container">
-            <table className="task-table" style={{ tableLayout: "fixed", width: "100%" }}>
-                <colgroup>
-                    <col />
-                    {colWidths.slice(1).map((w, i) => <col key={i + 1} style={{ width: w }} />)}
-                </colgroup>
-                <thead>
-                    <tr>
-                        {COL_NAMES.map((name, i) => (
-                            <th key={i} style={{ position: "relative", userSelect: "none", overflow: "hidden" }}>
-                                {name}
-                                {i > 0 && (
-                                    <div
-                                        onMouseDown={(e) => onMouseDown(i, e)}
-                                        style={{
-                                            position: "absolute",
-                                            left: 0,
-                                            top: 0,
-                                            bottom: 0,
-                                            width: 6,
-                                            cursor: "col-resize",
-                                            background: "transparent",
-                                        }}
-                                    />
-                                )}
-                            </th>
-                        ))}
-                    </tr>
-                </thead>
-                <tbody>
-                    {tasks.map((task) => (
-                        <tr key={task.url}>
-                            <td style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                                <a
-                                    href={task.url}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                    style={{ textDecoration: 'none', color: '#3b82f6' }}
-                                    title={task.url}
-                                >
-                                    {task.title}
-                                </a>
-                            </td>
-
-                            <td>
-                                {task.image ? (
-                                    <div className="image-container">
-                                        <img src={task.image} alt={task.title} className="thumbnail" />
-                                        <div className="image-preview">
-                                            <img src={task.image} alt={task.title} />
-                                        </div>
-                                    </div>
-                                ) : (
-                                    <span>無圖片</span>
-                                )}
-                            </td>
-
-                            <td style={{ fontSize: "0.75rem", color: "#6b7280", whiteSpace: "nowrap", overflow: "hidden" }}>
-                                {task.created_at
-                                    ? new Date(task.created_at * 1000).toLocaleString()
-                                    : "-"}
-                            </td>
-                            <td>
-                                {task.status === "downloading" ? (
-                                    <>
-                                        {(task.progress ?? 0) < 0 ? (
-                                            <div className="progress-indeterminate" />
-                                        ) : (
-                                            <div style={{ background: "#e5e7eb", height: 8, borderRadius: 4, width: "100%" }}>
-                                                <div style={{
-                                                    background: "#22c55e",
-                                                    height: 8,
-                                                    borderRadius: 4,
-                                                    width: `${task.progress ?? 0}%`,
-                                                }} />
-                                            </div>
-                                        )}
-                                        <div style={{ fontSize: "0.75rem", color: "#6b7280", marginTop: 4, lineHeight: "1.6" }}>
-                                            <div>{(task.progress ?? 0) < 0 ? "計算中" : `${(task.progress ?? 0).toFixed(1)}%`}</div>
-                                            {task.speed != null && task.speed > 0 && <div>{formatSpeed(task.speed)}</div>}
-                                            {task.timeRemaining != null && task.timeRemaining > 0 && <div>{formatTime(task.timeRemaining)}</div>}
-                                        </div>
-                                    </>
-                                ) : task.status === "done" ? (
-                                    <span className="text-green-600">完成 ✅</span>
-                                ) : task.status === "error" ? (
-                                    <span className="text-red-500" title={task.errorMessage}>錯誤 ❌</span>
-                                ) : task.status === "not_found" ? (
-                                    <span className="text-red-400" title={task.errorMessage}>找不到 🚫</span>
-                                ) : task.status === "paused" ? (
-                                    <span style={{ color: "#f59e0b" }}>已暫停 ⏸</span>
-                                ) : (
-                                    <span>-</span>
-                                )}
-                            </td>
-                            <td>
-                                <button onClick={() => onRemoveTask(task.url)}>刪除</button>
-                                <button
-                                    onClick={() => onDownload(task)}
-                                    disabled={task.status === "downloading"}
-                                    style={{ marginLeft: "5px" }}
-                                >
-                                    {task.status === "downloading" ? "下載中..." : "下載"}
-                                </button>
-                            </td>
+            <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+                <table className="task-table" style={{ tableLayout: "fixed", width: "100%" }}>
+                    <colgroup>
+                        <col style={{ width: 20 }} />
+                        <col />
+                        {colWidths.slice(1).map((w, i) => <col key={i + 1} style={{ width: w }} />)}
+                    </colgroup>
+                    <thead>
+                        <tr>
+                            <th style={{ width: 20 }}></th>
+                            {COL_NAMES.map((name, i) => (
+                                <th key={i} style={{ position: "relative", userSelect: "none", overflow: "hidden" }}>
+                                    {name}
+                                    {i > 0 && (
+                                        <div
+                                            onMouseDown={(e) => onMouseDown(i, e)}
+                                            style={{
+                                                position: "absolute",
+                                                left: 0,
+                                                top: 0,
+                                                bottom: 0,
+                                                width: 6,
+                                                cursor: "col-resize",
+                                                background: "transparent",
+                                            }}
+                                        />
+                                    )}
+                                </th>
+                            ))}
                         </tr>
-                    ))}
-                </tbody>
-            </table>
+                    </thead>
+                    <SortableContext items={tasks.map(t => t.url)} strategy={verticalListSortingStrategy}>
+                        <tbody>
+                            {tasks.map((task) => (
+                                <SortableRow
+                                    key={task.url}
+                                    task={task}
+                                    onRemoveTask={onRemoveTask}
+                                    onDownload={onDownload}
+                                />
+                            ))}
+                        </tbody>
+                    </SortableContext>
+                </table>
+            </DndContext>
         </div>
     );
 };
