@@ -17,7 +17,13 @@ const URL_THROTTLE_SECS: u64 = 30;
 
 pub fn start_clipboard_monitor(app_handle: AppHandle, running: Arc<AtomicBool>) {
     thread::spawn(move || {
-        let mut ctx: ClipboardContext = ClipboardProvider::new().expect("Failed to init clipboard");
+        let mut ctx: ClipboardContext = match ClipboardProvider::new() {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("Monitor: 剪貼簿初始化失敗: {}", e);
+                return;
+            }
+        };
         // 啟動時先讀取當前剪貼簿，避免把舊內容當新內容處理
         let mut last_content = ctx.get_contents().unwrap_or_default();
         let mut recent_urls: HashMap<String, Instant> = HashMap::new();
@@ -35,7 +41,7 @@ pub fn start_clipboard_monitor(app_handle: AppHandle, running: Arc<AtomicBool>) 
 
             // 1. 獲取剪貼簿內容
             if let Ok(current_content) = ctx.get_contents() {
-                // 內容變化且非空
+                // 內容變化且非空時才處理
                 if !current_content.is_empty() && current_content != last_content {
                     if let Ok(site) = Site::from_url(&current_content) {
                         if let Ok(normalized_url) = site.validate(&current_content) {
@@ -43,55 +49,55 @@ pub fn start_clipboard_monitor(app_handle: AppHandle, running: Arc<AtomicBool>) 
                             let now = Instant::now();
                             recent_urls.retain(|_, t| now.duration_since(*t).as_secs() < URL_THROTTLE_SECS);
 
-                            if recent_urls.contains_key(&normalized_url) {
-                                last_content = current_content;
-                                continue;
-                            }
-                            recent_urls.insert(normalized_url.clone(), now);
-                            println!("Monitor: 偵測到有效 {} 連結: {}", site.to_string(), normalized_url);
+                            if !recent_urls.contains_key(&normalized_url) {
+                                recent_urls.insert(normalized_url.clone(), now);
+                                println!("Monitor: 偵測到有效 {} 連結: {}", site.to_string(), normalized_url);
 
-                            let handle = app_handle.clone();
-                            let url_to_fetch = normalized_url.clone();
+                                let handle = app_handle.clone();
+                                let url_to_fetch = normalized_url.clone();
 
-                            // 4. 使用 Tauri 內建的 runtime 執行異步抓取
-                            tauri::async_runtime::spawn(async move {
-                                match site.fetch_details(&handle, &url_to_fetch).await {
-                                    Ok(payload) => {
-                                        // 檢查下載目錄是否已有同名檔案（含 _N 後綴變體）
-                                        let already_exists = handle
-                                            .path()
-                                            .download_dir()
-                                            .ok()
-                                            .and_then(|dir| std::fs::read_dir(dir).ok())
-                                            .map(|entries| {
-                                                let prefix = sanitize(&payload.title);
-                                                entries.filter_map(|e| e.ok()).any(|e| {
-                                                    let name = e.file_name();
-                                                    let name = name.to_string_lossy();
-                                                    name.starts_with(prefix.as_str()) && name.ends_with(".zip")
+                                // 使用 Tauri 內建的 runtime 執行異步抓取
+                                tauri::async_runtime::spawn(async move {
+                                    match site.fetch_details(&handle, &url_to_fetch).await {
+                                        Ok(payload) => {
+                                            // 檢查下載目錄是否已有同名檔案（含 _N 後綴變體）
+                                            let already_exists = handle
+                                                .path()
+                                                .download_dir()
+                                                .ok()
+                                                .and_then(|dir| std::fs::read_dir(dir).ok())
+                                                .map(|entries| {
+                                                    let prefix = sanitize(&payload.title);
+                                                    entries.filter_map(|e| e.ok()).any(|e| {
+                                                        let name = e.file_name();
+                                                        let name = name.to_string_lossy();
+                                                        name.starts_with(prefix.as_str()) && name.ends_with(".zip")
+                                                    })
                                                 })
-                                            })
-                                            .unwrap_or(false);
+                                                .unwrap_or(false);
 
-                                        if already_exists {
-                                            return;
-                                        }
-
-                                        match db::insert_task(&handle, &payload) {
-                                            Ok(true) => {
-                                                let _ = handle.emit("new-valid-url-payload", payload);
+                                            if already_exists {
+                                                return;
                                             }
-                                            Ok(false) => {}
-                                            Err(e) => eprintln!("DB Error: {:?}", e),
+
+                                            match db::insert_task(&handle, &payload) {
+                                                Ok(true) => {
+                                                    let _ = handle.emit("new-valid-url-payload", payload);
+                                                }
+                                                Ok(false) => {}
+                                                Err(e) => eprintln!("DB Error: {:?}", e),
+                                            }
                                         }
+                                        Err(e) => eprintln!("Fetch Error: {}", e),
                                     }
-                                    Err(e) => eprintln!("Fetch Error: {}", e),
-                                }
-                            });
+                                });
+                            }
                         }
                     }
-                    last_content = current_content;
                 }
+                // 無論內容是否有效，都更新 last_content（含空字串），
+                // 避免清空剪貼簿後再次複製同一 URL 無法觸發的問題
+                last_content = current_content;
             }
             thread::sleep(Duration::from_millis(MONITOR_INTERVAL_MS));
         }

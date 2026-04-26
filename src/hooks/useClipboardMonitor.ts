@@ -2,20 +2,16 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { listen, Event } from '@tauri-apps/api/event';
+import { invoke } from '@tauri-apps/api/core';
 import { ClipboardPayload, Task } from '../types';
 
 type AddTaskFunction = (payload: ClipboardPayload) => Promise<void>;
 
 interface UseClipboardMonitor {
     monitorClipboard: boolean;
-    setMonitorClipboard: (enabled: boolean) => void;
+    setMonitorClipboard: (enabled: boolean) => Promise<void>;
 }
 
-/**
- * 處理剪貼簿監控的 Side Effect 邏輯。
- * @param addTask 來自 useTaskManager 的新增任務函數。
- * @param tasks 當前的任務列表，用於判斷是否重複。
- */
 export const useClipboardMonitor = (
     addTask: AddTaskFunction,
     tasks: Task[]
@@ -27,8 +23,9 @@ export const useClipboardMonitor = (
         tasksRef.current = tasks;
     }, [tasks]);
 
-    const setMonitorClipboard = useCallback((enabled: boolean) => {
+    const setMonitorClipboard = useCallback(async (enabled: boolean) => {
         setMonitorClipboardState(enabled);
+        await invoke('set_monitor_paused', { paused: !enabled });
     }, []);
 
     useEffect(() => {
@@ -47,7 +44,7 @@ export const useClipboardMonitor = (
             });
 
             if (!mounted) {
-                fn(); // cleanup 已跑，立即 unlisten
+                fn();
             } else {
                 unlisten = fn;
             }

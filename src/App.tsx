@@ -12,7 +12,7 @@ import { TaskListView } from './components/TaskListView';
 
 
 function App() {
-  const { tasks, addTask, removeTask, removeAllTasks, reloadTasks } = useTaskManager();
+  const { tasks, addTask, removeTask, removeAllTasks } = useTaskManager();
   const { monitorClipboard, setMonitorClipboard } = useClipboardMonitor(addTask, tasks);
   const {
     tasks: downloadTasks,
@@ -39,13 +39,8 @@ function App() {
   }, []);
 
   const handleMonitorChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const enabled = e.target.checked;
-    setMonitorClipboard(enabled);
-    await invoke("set_monitor_paused", { paused: !enabled });
-    if (enabled) {
-      await reloadTasks();
-    }
-  }, [setMonitorClipboard, reloadTasks]);
+    await setMonitorClipboard(e.target.checked);
+  }, [setMonitorClipboard]);
 
   return (
     <div className="container">
