@@ -1,6 +1,8 @@
 use regex::Regex;
-use tauri::AppHandle;
+use std::sync::OnceLock;
 use url::Url;
+
+static RE_VALIDATE: OnceLock<Regex> = OnceLock::new();
 
 /// 驗證 nhentai URL 並回傳規範化的 URL 字串
 pub fn validate(content: &str) -> Result<String, String> {
@@ -19,7 +21,7 @@ pub fn validate(content: &str) -> Result<String, String> {
 
     // 3. 使用 Regex 驗證 Path 並提取 ID
     // 格式通常為 /g/123456/ 或 /g/123456
-    let re = Regex::new(r"^/g/(\d+)/?$").unwrap();
+    let re = RE_VALIDATE.get_or_init(|| Regex::new(r"^/g/(\d+)/?$").unwrap());
 
     if !re.is_match(parsed_url.path()) {
         return Err("路徑格式錯誤，應為 /g/{ID}/".to_string());
@@ -31,12 +33,4 @@ pub fn validate(content: &str) -> Result<String, String> {
 
     // 建構標準化的 URL 避免帶有額外的參數或不一致的斜線
     Ok(format!("https://nhentai.net/g/{}/", id))
-}
-
-/// 輔助用函數
-pub async fn get_file_url(
-    _app_handle: &AppHandle,
-    _url: &str,
-) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
-    Err("NHentai 下載尚未實作".into())
 }

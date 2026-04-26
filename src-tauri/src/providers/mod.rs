@@ -1,3 +1,4 @@
+use std::fmt;
 use std::path::PathBuf;
 use std::sync::{atomic::AtomicBool, Arc};
 
@@ -20,6 +21,23 @@ pub struct ClipboardPayload {
     pub download_page_href: String,
     pub created_at: i64,
     pub db_status: String,
+}
+
+#[derive(Serialize, Clone)]
+pub struct DownloadProgress {
+    pub url: String,
+    pub progress: f64,
+    pub speed_bytes_per_sec: f64,
+    pub time_remaining_secs: f64,
+}
+
+impl fmt::Display for Site {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Site::Wnacg => write!(f, "wnacg"),
+            Site::NHentai => write!(f, "nhentai"),
+        }
+    }
 }
 
 impl Site {
@@ -53,13 +71,6 @@ impl Site {
                 .await
                 .map_err(|e| e.to_string()),
             Site::NHentai => Err("NHentai fetch 尚未實作".to_string()),
-        }
-    }
-
-    pub fn to_string(&self) -> &str {
-        match self {
-            Site::Wnacg => "wnacg",
-            Site::NHentai => "nhentai",
         }
     }
 

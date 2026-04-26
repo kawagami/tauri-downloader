@@ -1,18 +1,19 @@
-use crate::{download_core::DownloadManager, providers::ClipboardPayload, state::AppState};
+use crate::{download_core::DownloadManager, providers::{ClipboardPayload, DownloadProgress}, state::AppState};
 
 use futures_util::StreamExt;
 use regex::Regex;
 use scraper::{ElementRef, Html, Selector};
-use serde::Serialize;
 use std::fs::File;
 use std::io::Write;
 use std::path::PathBuf;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
-    Arc,
+    Arc, OnceLock,
 };
 use tauri::{AppHandle, Emitter, Manager};
 use url::Url;
+
+static RE_VALIDATE: OnceLock<Regex> = OnceLock::new();
 
 fn select_first<'a>(document: &'a Html, selectors: &[&str]) -> Option<ElementRef<'a>> {
     for sel in selectors {
@@ -23,14 +24,6 @@ fn select_first<'a>(document: &'a Html, selectors: &[&str]) -> Option<ElementRef
         }
     }
     None
-}
-
-#[derive(Serialize, Clone)]
-struct DownloadProgress {
-    url: String,
-    progress: f64,
-    speed_bytes_per_sec: f64,
-    time_remaining_secs: f64,
 }
 
 /// 驗證 wnacg URL 並回傳規範化的 URL 字串
@@ -48,7 +41,7 @@ pub fn validate(content: &str) -> Result<String, String> {
     }
 
     // 3. 使用 Regex 驗證 Path 並提取 ID (兼顧檢查與提取)
-    let re = Regex::new(r"^/photos-index-aid-(\d+)\.html$").unwrap();
+    let re = RE_VALIDATE.get_or_init(|| Regex::new(r"^/photos-index-aid-(\d+)\.html$").unwrap());
 
     if !re.is_match(parsed_url.path()) {
         return Err("路徑格式錯誤，應為 /photos-index-aid-{ID}.html".to_string());
