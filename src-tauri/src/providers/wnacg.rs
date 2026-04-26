@@ -110,7 +110,9 @@ pub async fn fetch_payload_details(
     let client = &state.client;
     let res = client.get(&url).send().await?;
 
-    // 檢查響應狀態
+    if matches!(res.status(), reqwest::StatusCode::NOT_FOUND | reqwest::StatusCode::GONE) {
+        return Err("NOT_FOUND".into());
+    }
     if !res.status().is_success() {
         return Err(format!("網絡請求失敗，狀態碼: {}", res.status()).into());
     }
@@ -136,7 +138,13 @@ pub async fn fetch_payload_details(
         .and_then(|el| el.value().attr("href"))
         .unwrap_or_default();
 
-    let download_page_href = format!("https://www.wnacg.com{}", download_page_href_raw);
+    let download_page_href = if download_page_href_raw.starts_with("http") {
+        download_page_href_raw.to_string()
+    } else if download_page_href_raw.starts_with("//") {
+        format!("https:{}", download_page_href_raw)
+    } else {
+        format!("https://www.wnacg.com{}", download_page_href_raw)
+    };
 
     let created_at = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -174,7 +182,7 @@ pub async fn download(
         return Err(format!("下載失敗 status: {}, Url: {}", resp.status(), file_url));
     }
 
-    let total_size = resp.content_length().ok_or("無法取得檔案大小")?;
+    let total_size = resp.content_length().unwrap_or(0);
     let mut file = File::create(&save_path).map_err(|e| e.to_string())?;
     let mut downloaded: u64 = 0;
     let mut stream = resp.bytes_stream();

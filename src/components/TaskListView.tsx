@@ -98,16 +98,22 @@ export const TaskListView: React.FC<TaskListViewProps> = ({
                             <td>
                                 {task.status === "downloading" ? (
                                     <>
-                                        <div className="w-32 bg-gray-200 h-2 rounded">
-                                            <div
-                                                className="bg-green-500 h-2 rounded"
-                                                style={{ width: `${task.progress ?? 0}%` }}
-                                            />
-                                        </div>
-                                        <div className="text-xs text-gray-500 mt-1" style={{ lineHeight: "1.6" }}>
-                                            <div>{(task.progress ?? 0).toFixed(1)}%</div>
-                                            {task.speed != null && <div>{formatSpeed(task.speed)}</div>}
-                                            {task.timeRemaining != null && <div>{formatTime(task.timeRemaining)}</div>}
+                                        {(task.progress ?? 0) < 0 ? (
+                                            <div className="progress-indeterminate" />
+                                        ) : (
+                                            <div style={{ background: "#e5e7eb", height: 8, borderRadius: 4, width: "100%" }}>
+                                                <div style={{
+                                                    background: "#22c55e",
+                                                    height: 8,
+                                                    borderRadius: 4,
+                                                    width: `${task.progress ?? 0}%`,
+                                                }} />
+                                            </div>
+                                        )}
+                                        <div style={{ fontSize: "0.75rem", color: "#6b7280", marginTop: 4, lineHeight: "1.6" }}>
+                                            <div>{(task.progress ?? 0) < 0 ? "計算中" : `${(task.progress ?? 0).toFixed(1)}%`}</div>
+                                            {task.speed != null && task.speed > 0 && <div>{formatSpeed(task.speed)}</div>}
+                                            {task.timeRemaining != null && task.timeRemaining > 0 && <div>{formatTime(task.timeRemaining)}</div>}
                                         </div>
                                     </>
                                 ) : task.status === "done" ? (

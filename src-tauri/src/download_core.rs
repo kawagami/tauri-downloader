@@ -45,7 +45,12 @@ impl DownloadManager {
 
     /// 根據當前數據和時間計算最新的 ProgressMetrics
     pub fn calculate_metrics(&self, downloaded: u64, total: u64) -> ProgressMetrics {
-        let percentage = (downloaded as f64 / total as f64) * 100.0;
+        // total == 0 means Content-Length was absent; signal indeterminate with -1
+        let percentage = if total > 0 {
+            (downloaded as f64 / total as f64) * 100.0
+        } else {
+            -1.0
+        };
 
         // --- 計算速度和剩餘時間 ---
         let elapsed = self
@@ -62,10 +67,12 @@ impl DownloadManager {
 
         let remaining_bytes = total.saturating_sub(downloaded) as f64;
 
-        let time_remaining_secs = if speed > 0.0 {
+        let time_remaining_secs = if total == 0 {
+            -1.0
+        } else if speed > 0.0 {
             remaining_bytes / speed
         } else {
-            f64::INFINITY // 速度為零，視為無限剩餘時間
+            f64::INFINITY
         };
         // -------------------------
 

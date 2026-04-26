@@ -100,3 +100,29 @@ body {
 .image-container:hover .image-preview {
   display: block;
 }
+
+@keyframes progress-slide {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(400%); }
+}
+
+.progress-indeterminate {
+  overflow: hidden;
+  position: relative;
+  background: #e5e7eb;
+  height: 8px;
+  border-radius: 4px;
+  width: 100%;
+}
+
+.progress-indeterminate::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 25%;
+  height: 100%;
+  background: #22c55e;
+  border-radius: 4px;
+  animation: progress-slide 1.5s infinite linear;
+}

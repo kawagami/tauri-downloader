@@ -1,24 +1,14 @@
 use crate::{providers::ClipboardPayload, state::AppState};
 
 use rusqlite::{params, Connection, Result};
-use std::path::PathBuf;
 use tauri::{AppHandle, Manager};
 
-/// 取得 SQLite 檔案路徑
-pub fn get_db_path(app_handle: &AppHandle) -> PathBuf {
-    let mut path = app_handle
-        .path()
-        .app_data_dir()
-        .expect("無法取得 app data 資料夾");
-    std::fs::create_dir_all(&path).expect("建立資料夾失敗");
-    path.push("tasks.db");
-    path
-}
-
 /// 建立並初始化資料庫
-pub fn init_db(app_handle: &AppHandle) -> Result<Connection> {
-    let db_path = get_db_path(app_handle);
-    let conn = Connection::open(db_path)?;
+pub fn init_db(app_handle: &AppHandle) -> Result<Connection, Box<dyn std::error::Error>> {
+    let mut path = app_handle.path().app_data_dir()?;
+    std::fs::create_dir_all(&path)?;
+    path.push("tasks.db");
+    let conn = Connection::open(path)?;
 
     conn.execute(
         "CREATE TABLE IF NOT EXISTS tasks (
