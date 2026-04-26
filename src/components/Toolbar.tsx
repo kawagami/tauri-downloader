@@ -6,22 +6,26 @@ interface ToolbarProps {
     monitorClipboard: boolean;
     onMonitorChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
     onRemoveAll: () => void;
+    onClearDone: () => void;
     onDownloadAll: () => void;
     onStopDownload: () => void;
     isBatchDownloading: boolean;
     batchProgress: { current: number; total: number };
     tasksEmpty: boolean;
+    hasDoneTasks: boolean;
 }
 
 export const Toolbar: React.FC<ToolbarProps> = ({
     monitorClipboard,
     onMonitorChange,
     onRemoveAll,
+    onClearDone,
     onDownloadAll,
     onStopDownload,
     isBatchDownloading,
     batchProgress,
     tasksEmpty,
+    hasDoneTasks,
 }) => (
     <div className="sticky-toolbar">
         <div className="checkbox-group">
@@ -35,6 +39,13 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         </div>
         <div className="toolbar-actions">
             <button onClick={onRemoveAll}>全部刪除</button>
+            <button
+                onClick={onClearDone}
+                disabled={!hasDoneTasks}
+                style={{ marginLeft: "10px" }}
+            >
+                清除已完成
+            </button>
             {!isBatchDownloading ? (
                 <button
                     onClick={onDownloadAll}

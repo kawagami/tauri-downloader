@@ -17,6 +17,7 @@ function App() {
   const {
     tasks: downloadTasks,
     handleDownload,
+    handleClearDone,
     handleDownloadAllSequentially,
     stopBatchDownload,
     isBatchDownloading,
@@ -38,11 +39,13 @@ function App() {
         monitorClipboard={monitorClipboard}
         onMonitorChange={handleMonitorChange}
         onRemoveAll={removeAllTasks}
+        onClearDone={handleClearDone}
         onDownloadAll={handleDownloadAllSequentially}
         onStopDownload={stopBatchDownload}
         isBatchDownloading={isBatchDownloading}
         batchProgress={batchProgress}
         tasksEmpty={downloadTasks.length === 0}
+        hasDoneTasks={downloadTasks.some(t => t.status === "done")}
       />
       <main className="main-content">
         <TaskListView

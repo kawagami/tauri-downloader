@@ -33,6 +33,7 @@ export function useDownloadTasks(baseTasks: Task[], onRemoveTask: (url: string) 
     const [isBatchDownloading, setIsBatchDownloading] = useState(false);
     const [batchProgress, setBatchProgress] = useState({ current: 0, total: 0 });
     const shouldStop = useRef(false);
+    const tasksRef = useRef<DownloadableTask[]>([]);
 
     useEffect(() => {
         setTasks(prev => {
@@ -43,6 +44,8 @@ export function useDownloadTasks(baseTasks: Task[], onRemoveTask: (url: string) 
             return sortTasks(merged);
         });
     }, [baseTasks]);
+
+    useEffect(() => { tasksRef.current = tasks; }, [tasks]);
 
     // --- 監聽進度事件 ---
     useEffect(() => {
@@ -113,43 +116,47 @@ export function useDownloadTasks(baseTasks: Task[], onRemoveTask: (url: string) 
         }
     };
 
+    // --- 清除已完成 ---
+    const handleClearDone = () => {
+        tasks.filter(t => t.status === "done").forEach(t => onRemoveTask(t.url));
+    };
+
     // --- 批次下載 ---
     const handleDownloadAllSequentially = async () => {
         if (isBatchDownloading) return;
         shouldStop.current = false;
         setIsBatchDownloading(true);
+        let completed = 0;
 
-        const pending = tasks.filter(t =>
-            t.status === "idle" || t.status === "error" || t.status === "paused"
-        );
-        setBatchProgress({ current: 0, total: pending.length });
-        let current = 0;
+        const isPending = (t: DownloadableTask) =>
+            t.status === "idle" || t.status === "error" || t.status === "paused";
 
-        for (const task of tasks) {
+        while (true) {
             if (shouldStop.current) break;
-            if (task.status !== "idle" && task.status !== "error" && task.status !== "paused") continue;
 
-            current += 1;
-            setBatchProgress(prev => ({ ...prev, current }));
+            const next = tasksRef.current.find(isPending);
+            if (!next) break;
+
+            const remaining = tasksRef.current.filter(isPending).length;
+            setBatchProgress({ current: completed, total: completed + remaining });
 
             setTasks(prev => prev.map(t =>
-                t.url === task.url ? { ...t, status: "downloading", progress: 0 } : t
+                t.url === next.url ? { ...t, status: "downloading", progress: 0 } : t
             ));
 
             try {
-                await invoke<string>("download_with_progress", {
-                    url: task.download_page_href,
-                    title: task.title,
+                const savePath = await invoke<string>("download_with_progress", {
+                    url: next.download_page_href,
+                    title: next.title,
                 });
-
+                completed++;
+                setBatchProgress(prev => ({ ...prev, current: completed }));
                 setTasks(prev => prev.map(t =>
-                    t.url === task.url ? { ...t, status: "done", progress: 100 } : t
+                    t.url === next.url ? { ...t, status: "done", progress: 100, savePath } : t
                 ));
-
-                onRemoveTask(task.url);
-                await new Promise(resolve => setTimeout(resolve, 1000));
+                await persistStatus(next.url, "done");
             } catch (err) {
-                await applyResult(task.url, err);
+                await applyResult(next.url, err);
                 if (String(err).includes("已取消")) break;
             }
         }
@@ -166,6 +173,7 @@ export function useDownloadTasks(baseTasks: Task[], onRemoveTask: (url: string) 
         tasks,
         setTasks,
         handleDownload,
+        handleClearDone,
         handleDownloadAllSequentially,
         stopBatchDownload,
         isBatchDownloading,
