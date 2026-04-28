@@ -6,7 +6,7 @@ interface ToolbarProps {
     monitorClipboard: boolean;
     onMonitorChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
     onRemoveAll: () => void;
-    onClearDone: () => void;
+    onClearDone: () => Promise<void>;
     onDownloadAll: () => void;
     onStopDownload: () => void;
     isBatchDownloading: boolean;
@@ -15,6 +15,8 @@ interface ToolbarProps {
     hasDoneTasks: boolean;
     bandwidthKbps: number;
     onBandwidthChange: (kbps: number) => void;
+    dingVolume: number;
+    onDingVolumeChange: (v: number) => void;
 }
 
 export const Toolbar: React.FC<ToolbarProps> = ({
@@ -30,6 +32,8 @@ export const Toolbar: React.FC<ToolbarProps> = ({
     hasDoneTasks,
     bandwidthKbps,
     onBandwidthChange,
+    dingVolume,
+    onDingVolumeChange,
 }) => (
     <div className="sticky-toolbar" style={{ flexDirection: "column", alignItems: "flex-start", gap: "6px" }}>
         <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
@@ -56,6 +60,19 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                     style={{ width: "80px" }}
                 />
                 <span style={{ fontSize: "12px" }}>KB/s</span>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+                <span style={{ fontSize: "12px" }}>通知音量</span>
+                <input
+                    type="range"
+                    min="0"
+                    max="3"
+                    step="0.05"
+                    value={dingVolume}
+                    onChange={e => onDingVolumeChange(Number(e.target.value))}
+                    style={{ width: "80px" }}
+                />
+                <span style={{ fontSize: "12px", width: "28px" }}>{Math.round(dingVolume * 100)}%</span>
             </div>
         </div>
         <div className="toolbar-actions">

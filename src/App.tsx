@@ -12,7 +12,7 @@ import { TaskListView } from './components/TaskListView';
 
 
 function App() {
-  const { tasks, addTask, removeTask, removeAllTasks } = useTaskManager();
+  const { tasks, addTask, removeTask, removeAllTasks, volume, setVolume } = useTaskManager();
   const { monitorClipboard, setMonitorClipboard } = useClipboardMonitor(addTask, tasks);
   const {
     tasks: downloadTasks,
@@ -58,6 +58,8 @@ function App() {
         hasDoneTasks={downloadTasks.some(t => t.status === "done")}
         bandwidthKbps={bandwidthKbps}
         onBandwidthChange={handleBandwidthChange}
+        dingVolume={volume}
+        onDingVolumeChange={setVolume}
       />
       <main className="main-content">
         <TaskListView

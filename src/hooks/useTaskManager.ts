@@ -8,6 +8,8 @@ export interface UseTaskManager {
     removeTask: (url: string) => Promise<void>;
     removeAllTasks: () => Promise<void>;
     reloadTasks: () => Promise<void>;
+    volume: number;
+    setVolume: (v: number) => void;
 }
 
 /**
@@ -18,8 +20,19 @@ export interface UseTaskManager {
  */
 export const useTaskManager = (): UseTaskManager => {
     const [tasks, setTasks] = useState<Task[]>([]);
+    const [volume, setVolumeState] = useState<number>(() =>
+        Number(localStorage.getItem("dingVolume") ?? "1")
+    );
 
-    // 🔹 使用 useRef 儲存音效實例，避免每次 render 重新創建
+    const volumeRef = useRef(volume);
+    const gainNodeRef = useRef<GainNode | null>(null);
+    const setVolume = useCallback((v: number) => {
+        volumeRef.current = v;
+        if (gainNodeRef.current) gainNodeRef.current.gain.value = v;
+        setVolumeState(v);
+        localStorage.setItem("dingVolume", String(v));
+    }, []);
+
     const audioRef = useRef<HTMLAudioElement | null>(null);
 
     const reloadTasks = useCallback(async () => {
@@ -33,7 +46,20 @@ export const useTaskManager = (): UseTaskManager => {
 
     // 🔹 1️⃣ 啟動時從 SQLite 載入所有任務
     useEffect(() => {
-        audioRef.current = new Audio('/ding.mp3');
+        fetch('/ding.mp3')
+            .then(r => r.blob())
+            .then(blob => {
+                const audio = new Audio(URL.createObjectURL(blob));
+                const ctx = new AudioContext();
+                const source = ctx.createMediaElementSource(audio);
+                const gain = ctx.createGain();
+                gain.gain.value = volumeRef.current;
+                source.connect(gain);
+                gain.connect(ctx.destination);
+                audioRef.current = audio;
+                gainNodeRef.current = gain;
+            })
+            .catch(() => {});
         reloadTasks();
     }, []);
 
@@ -52,6 +78,7 @@ export const useTaskManager = (): UseTaskManager => {
         setTasks(prev => [...prev, payload]);
 
         if (audioRef.current) {
+            if (gainNodeRef.current) gainNodeRef.current.gain.value = volumeRef.current;
             audioRef.current.currentTime = 0;
             audioRef.current.play().catch(() => {});
         }
@@ -81,5 +108,7 @@ export const useTaskManager = (): UseTaskManager => {
         removeTask,
         removeAllTasks,
         reloadTasks,
+        volume,
+        setVolume,
     };
 };
