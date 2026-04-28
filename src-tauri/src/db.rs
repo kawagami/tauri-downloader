@@ -100,13 +100,15 @@ pub fn update_task_status(app_handle: &AppHandle, url: &str, status: &str) -> Re
 /// 更新任務排序順序
 pub fn reorder_tasks(app_handle: &AppHandle, urls: &[String]) -> Result<()> {
     let state = app_handle.state::<AppState>();
-    let conn = state.db.lock().unwrap();
+    let mut conn = state.db.lock().unwrap();
+    let tx = conn.transaction()?;
     for (i, url) in urls.iter().enumerate() {
-        conn.execute(
+        tx.execute(
             "UPDATE tasks SET sort_order = ?1 WHERE url = ?2",
             params![(i + 1) as i64, url],
         )?;
     }
+    tx.commit()?;
     Ok(())
 }
 

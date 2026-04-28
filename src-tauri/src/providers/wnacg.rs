@@ -73,21 +73,19 @@ pub async fn get_file_url(
     let html_content = res.text().await?;
     let document = Html::parse_document(&html_content);
 
-    let href = select_first(&document, &["#ads > a", "a.ads", "a[href*='down']"])
+    let raw = select_first(&document, &["#ads > a", "a.ads", "a[href*='down']"])
         .and_then(|el| el.value().attr("href"))
-        .map(|href| {
-            if href.starts_with("http") {
-                href.to_string()
-            } else if href.starts_with("//") {
-                format!("https:{}", href)
-            } else {
-                href.to_string()
-            }
-        })
-        .unwrap_or_else(|| {
-            eprintln!("wnacg: 無法找到下載連結");
-            "".to_string()
-        });
+        .ok_or_else(|| -> Box<dyn std::error::Error + Send + Sync> {
+            "wnacg: 無法找到下載連結".into()
+        })?;
+
+    let href = if raw.starts_with("http") {
+        raw.to_string()
+    } else if raw.starts_with("//") {
+        format!("https:{}", raw)
+    } else {
+        format!("https://www.wnacg.com{}", raw)
+    };
 
     Ok(href)
 }
@@ -129,7 +127,9 @@ pub async fn fetch_payload_details(
 
     let download_page_href_raw = select_first(&document, &["#ads > a", "a.ads", "a[href*='down']"])
         .and_then(|el| el.value().attr("href"))
-        .unwrap_or_default();
+        .ok_or_else(|| -> Box<dyn std::error::Error + Send + Sync> {
+            "wnacg: 無法找到下載頁面連結".into()
+        })?;
 
     let download_page_href = if download_page_href_raw.starts_with("http") {
         download_page_href_raw.to_string()

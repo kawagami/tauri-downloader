@@ -118,9 +118,11 @@ export function useDownloadTasks(baseTasks: Task[], onRemoveTask: (url: string) 
     };
 
     // --- 清除已完成 ---
-    const handleClearDone = () => {
-        tasks.filter(t => t.status === "done").forEach(t => onRemoveTask(t.url));
-    };
+    const handleClearDone = useCallback(async () => {
+        await Promise.all(
+            tasks.filter(t => t.status === "done").map(t => onRemoveTask(t.url))
+        );
+    }, [tasks, onRemoveTask]);
 
     // --- 批次下載 ---
     const handleDownloadAllSequentially = async () => {
