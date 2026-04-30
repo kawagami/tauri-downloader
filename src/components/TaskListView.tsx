@@ -1,6 +1,7 @@
 // TaskListView.tsx
 
 import React from "react";
+import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import {
     DndContext,
     closestCenter,
@@ -109,11 +110,25 @@ const SortableRow: React.FC<SortableRowProps> = ({ task, onRemoveTask, onDownloa
                         </div>
                     </>
                 ) : task.status === "done" ? (
-                    <span className="text-green-600">完成 ✅</span>
+                    <span style={{ color: "#16a34a" }}>完成 ✅</span>
                 ) : task.status === "error" ? (
-                    <span className="text-red-500" title={task.errorMessage}>錯誤 ❌</span>
+                    <div>
+                        <span style={{ color: "#ef4444" }}>錯誤 ❌</span>
+                        {task.errorMessage && (
+                            <div style={{ fontSize: "0.7rem", color: "#ef4444", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={task.errorMessage}>
+                                {task.errorMessage}
+                            </div>
+                        )}
+                    </div>
                 ) : task.status === "not_found" ? (
-                    <span className="text-red-400" title={task.errorMessage}>找不到 🚫</span>
+                    <div>
+                        <span style={{ color: "#f87171" }}>找不到 🚫</span>
+                        {task.errorMessage && (
+                            <div style={{ fontSize: "0.7rem", color: "#f87171", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={task.errorMessage}>
+                                {task.errorMessage}
+                            </div>
+                        )}
+                    </div>
                 ) : task.status === "paused" ? (
                     <span style={{ color: "#f59e0b" }}>已暫停 ⏸</span>
                 ) : (
@@ -129,6 +144,14 @@ const SortableRow: React.FC<SortableRowProps> = ({ task, onRemoveTask, onDownloa
                 >
                     {task.status === "downloading" ? "下載中..." : "下載"}
                 </button>
+                {task.status === "done" && task.savePath && (
+                    <button
+                        onClick={() => revealItemInDir(task.savePath!)}
+                        style={{ marginLeft: "5px" }}
+                    >
+                        開啟
+                    </button>
+                )}
             </td>
         </tr>
     );
