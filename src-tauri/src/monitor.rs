@@ -68,10 +68,13 @@ pub fn start_clipboard_monitor(app_handle: AppHandle, running: Arc<AtomicBool>) 
                                                 .and_then(|dir| std::fs::read_dir(dir).ok())
                                                 .map(|entries| {
                                                     let prefix = sanitize(&payload.title);
+                                                    let exact = format!("{}.zip", prefix);
+                                                    let numbered_prefix = format!("{}_", prefix);
                                                     entries.filter_map(|e| e.ok()).any(|e| {
                                                         let name = e.file_name();
                                                         let name = name.to_string_lossy();
-                                                        name.starts_with(prefix.as_str()) && name.ends_with(".zip")
+                                                        name == exact.as_str()
+                                                            || (name.starts_with(numbered_prefix.as_str()) && name.ends_with(".zip"))
                                                     })
                                                 })
                                                 .unwrap_or(false);
