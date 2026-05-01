@@ -1,6 +1,6 @@
 use std::fmt;
 use std::path::PathBuf;
-use std::sync::{atomic::AtomicBool, Arc};
+use std::sync::{atomic::{AtomicBool, AtomicU64}, Arc};
 
 use serde::{Deserialize, Serialize};
 use tauri::AppHandle;
@@ -81,7 +81,7 @@ impl Site {
         source_url: String,
         save_path: PathBuf,
         cancelled: Arc<AtomicBool>,
-        bandwidth_limit_bps: u64,
+        bandwidth_limit_bps: Arc<AtomicU64>,
     ) -> Result<(), String> {
         match self {
             Site::Wnacg => {

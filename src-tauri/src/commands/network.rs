@@ -22,8 +22,6 @@ pub async fn download_with_progress(
 
     // 2. 自動識別網站並獲取檔案 URL (核心邏輯封裝在 Site 裡了)
     let site = Site::from_url(&url)?;
-    let bandwidth_limit_bps = state.bandwidth_limit_bps.load(Ordering::Relaxed);
-
     // 3. 下載
     site.download(
         &state.client,
@@ -31,7 +29,7 @@ pub async fn download_with_progress(
         url,
         save_path.clone(),
         state.download_cancelled.clone(),
-        bandwidth_limit_bps,
+        state.bandwidth_limit_bps.clone(),
     )
     .await?;
 
