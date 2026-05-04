@@ -19,6 +19,7 @@ pub struct ClipboardPayload {
     pub title: String,
     pub image: String,
     pub download_page_href: String,
+    pub file_url: String,
     pub created_at: i64,
     pub db_status: String,
 }
@@ -41,14 +42,13 @@ impl fmt::Display for Site {
 }
 
 impl Site {
-    /// 根據 root domain 辨識屬於哪個網站
+    /// 根據 host 辨識屬於哪個網站
     pub fn from_url(url: &str) -> Result<Self, String> {
-        if url.contains("wnacg.com") {
-            Ok(Site::Wnacg)
-        } else if url.contains("nhentai.net") {
-            Ok(Site::NHentai)
-        } else {
-            Err("不支援的網站域名".to_string())
+        let parsed = url::Url::parse(url).map_err(|_| "無效的 URL 格式".to_string())?;
+        match parsed.host_str() {
+            Some(h) if h == "wnacg.com" || h.ends_with(".wnacg.com") => Ok(Site::Wnacg),
+            Some(h) if h == "nhentai.net" || h.ends_with(".nhentai.net") => Ok(Site::NHentai),
+            _ => Err("不支援的網站域名".to_string()),
         }
     }
 
@@ -79,15 +79,20 @@ impl Site {
         client: &reqwest::Client,
         app_handle: &AppHandle,
         source_url: String,
+        cached_file_url: String,
         save_path: PathBuf,
         cancelled: Arc<AtomicBool>,
         bandwidth_limit_bps: Arc<AtomicU64>,
     ) -> Result<(), String> {
         match self {
             Site::Wnacg => {
-                let file_url = wnacg::get_file_url(app_handle, &source_url)
-                    .await
-                    .map_err(|e| e.to_string())?;
+                let file_url = if !cached_file_url.is_empty() {
+                    cached_file_url
+                } else {
+                    wnacg::get_file_url(app_handle, &source_url)
+                        .await
+                        .map_err(|e| e.to_string())?
+                };
                 wnacg::download(client, app_handle, source_url, file_url, save_path, cancelled, bandwidth_limit_bps)
                     .await
             }

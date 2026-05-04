@@ -40,7 +40,7 @@ impl DownloadManager {
         self.start_time = Some(Instant::now());
 
         // 實際的下載啟動邏輯 (例如：建立網路連線)
-        println!("Core: 下載啟動，總大小: {} Bytes", total_size);
+        tracing::debug!("Core: 下載啟動，總大小: {} Bytes", total_size);
     }
 
     /// 根據當前數據和時間計算最新的 ProgressMetrics

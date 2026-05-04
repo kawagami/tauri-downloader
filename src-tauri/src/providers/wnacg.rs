@@ -56,7 +56,7 @@ pub async fn get_file_url(
     app_handle: &AppHandle,
     url: &str,
 ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
-    println!("Rust Monitor: 正在從 URL 獲取詳細資訊: {}", url);
+    tracing::debug!("get_file_url: {}", url);
 
     // 取 state 中的 client 執行 reqwest get 請求
     let state = app_handle.state::<AppState>();
@@ -94,7 +94,7 @@ pub async fn fetch_payload_details(
     app_handle: &AppHandle,
     url: String,
 ) -> Result<ClipboardPayload, Box<dyn std::error::Error + Send + Sync>> {
-    println!("Rust Monitor: 正在從 URL 獲取詳細資訊: {}", url);
+    tracing::info!("fetch_payload_details: {}", url);
 
     // 取 state 中的 client 執行 reqwest get 請求
     let state = app_handle.state::<AppState>();
@@ -108,36 +108,49 @@ pub async fn fetch_payload_details(
         return Err(format!("網絡請求失敗，狀態碼: {}", res.status()).into());
     }
 
-    // 實際應用中，您會解析 HTML 內容來獲取 title 和 image URL/ID
     let html_content = res.text().await?;
-    let document = Html::parse_document(&html_content);
 
-    let title = select_first(&document, &["#bodywrap > h2", "#bodywrap h2", "h1", "h2"])
-        .map(|el| el.text().collect::<String>().trim().to_string())
-        .unwrap_or_else(|| "無法找到標題".to_string());
+    // 用 block 確保 Html（非 Send）在 await 前 drop
+    let (title, image, download_page_href) = {
+        let document = Html::parse_document(&html_content);
 
-    let image = select_first(&document, &[
-        "#bodywrap .pic_box img",
-        ".pic_box img",
-        ".grid img",
-    ])
-    .and_then(|el| el.value().attr("src"))
-    .map(|s| s.to_string())
-    .unwrap_or_else(|| "placeholder.png".to_string());
+        let title = select_first(&document, &["#bodywrap > h2", "#bodywrap h2", "h1", "h2"])
+            .map(|el| el.text().collect::<String>().trim().to_string())
+            .unwrap_or_else(|| "無法找到標題".to_string());
 
-    let download_page_href_raw = select_first(&document, &["#ads > a", "a.ads", "a[href*='down']"])
-        .and_then(|el| el.value().attr("href"))
-        .ok_or_else(|| -> Box<dyn std::error::Error + Send + Sync> {
-            "wnacg: 無法找到下載頁面連結".into()
-        })?;
+        let image = select_first(&document, &[
+            "#bodywrap .pic_box img",
+            ".pic_box img",
+            ".grid img",
+        ])
+        .and_then(|el| el.value().attr("src"))
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| "placeholder.png".to_string());
 
-    let download_page_href = if download_page_href_raw.starts_with("http") {
-        download_page_href_raw.to_string()
-    } else if download_page_href_raw.starts_with("//") {
-        format!("https:{}", download_page_href_raw)
-    } else {
-        format!("https://www.wnacg.com{}", download_page_href_raw)
-    };
+        let download_page_href_raw = select_first(&document, &["#ads > a", "a.ads", "a[href*='down']"])
+            .and_then(|el| el.value().attr("href"))
+            .ok_or_else(|| -> Box<dyn std::error::Error + Send + Sync> {
+                "wnacg: 無法找到下載頁面連結".into()
+            })?;
+
+        let download_page_href = if download_page_href_raw.starts_with("http") {
+            download_page_href_raw.to_string()
+        } else if download_page_href_raw.starts_with("//") {
+            format!("https:{}", download_page_href_raw)
+        } else {
+            format!("https://www.wnacg.com{}", download_page_href_raw)
+        };
+
+        (title, image, download_page_href)
+    }; // document 在此 drop，之後才 await
+
+    // 順帶抓實際 ZIP URL，快取進 DB 省掉下載時的額外請求；失敗不中斷
+    let file_url = get_file_url(app_handle, &download_page_href)
+        .await
+        .unwrap_or_default();
+    if file_url.is_empty() {
+        tracing::warn!("fetch_payload_details: 無法預取 file_url，下載時將重新抓取");
+    }
 
     let created_at = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -149,6 +162,7 @@ pub async fn fetch_payload_details(
         title,
         image,
         download_page_href,
+        file_url,
         created_at,
         db_status: "idle".to_string(),
     })
@@ -186,6 +200,8 @@ pub async fn download(
     let mut throttle_downloaded: u64 = 0;
     let mut throttle_start = std::time::Instant::now();
     let mut last_limit = bandwidth_limit_bps.load(Ordering::Relaxed);
+    let mut last_emit = std::time::Instant::now();
+    let emit_interval = std::time::Duration::from_millis(250);
 
     while let Some(chunk) = stream.next().await {
         if cancelled.load(Ordering::Relaxed) {
@@ -216,19 +232,37 @@ pub async fn download(
             }
         }
 
-        let metrics = manager.calculate_metrics(downloaded, total_size);
-        app_handle
-            .emit(
-                "download_progress",
-                DownloadProgress {
-                    url: source_url.clone(),
-                    progress: metrics.percentage,
-                    speed_bytes_per_sec: metrics.speed_bytes_per_sec,
-                    time_remaining_secs: metrics.time_remaining_secs,
-                },
-            )
-            .map_err(|e| e.to_string())?;
+        // 節流：每 250ms 發一次進度事件
+        if last_emit.elapsed() >= emit_interval {
+            let metrics = manager.calculate_metrics(downloaded, total_size);
+            app_handle
+                .emit(
+                    "download_progress",
+                    DownloadProgress {
+                        url: source_url.clone(),
+                        progress: metrics.percentage,
+                        speed_bytes_per_sec: metrics.speed_bytes_per_sec,
+                        time_remaining_secs: metrics.time_remaining_secs,
+                    },
+                )
+                .map_err(|e| e.to_string())?;
+            last_emit = std::time::Instant::now();
+        }
     }
+
+    // 下載完成後補發最終進度（確保前端顯示 100%）
+    let metrics = manager.calculate_metrics(downloaded, total_size);
+    app_handle
+        .emit(
+            "download_progress",
+            DownloadProgress {
+                url: source_url.clone(),
+                progress: metrics.percentage,
+                speed_bytes_per_sec: metrics.speed_bytes_per_sec,
+                time_remaining_secs: metrics.time_remaining_secs,
+            },
+        )
+        .map_err(|e| e.to_string())?;
 
     Ok(())
 }

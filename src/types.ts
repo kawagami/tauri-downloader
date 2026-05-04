@@ -5,6 +5,7 @@ export interface Task {
     title: string;
     image: string;
     download_page_href: string;
+    file_url: string;
     created_at: number;
     db_status: string;
 }
@@ -23,6 +24,7 @@ export interface ClipboardPayload {
     title: string;
     image: string;
     download_page_href: string;
+    file_url: string;
     created_at: number;
     db_status: string;
 }

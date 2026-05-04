@@ -5,6 +5,7 @@ use std::sync::{
     atomic::{AtomicBool, AtomicU64},
     Arc, Mutex,
 };
+use std::time::Duration;
 
 pub struct AppState {
     pub db: Mutex<Connection>,
@@ -19,7 +20,10 @@ impl AppState {
     pub fn new(db: Connection, monitor_running: Arc<AtomicBool>) -> Self {
         Self {
             db: Mutex::new(db),
-            client: Client::new(),
+            client: Client::builder()
+                .connect_timeout(Duration::from_secs(30))
+                .build()
+                .expect("failed to build reqwest client"),
             monitor_running,
             monitor_paused: Arc::new(AtomicBool::new(false)),
             download_cancelled: Arc::new(AtomicBool::new(false)),

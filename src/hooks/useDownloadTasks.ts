@@ -107,6 +107,7 @@ export function useDownloadTasks(baseTasks: Task[], onRemoveTask: (url: string) 
             const savePath = await invoke<string>("download_with_progress", {
                 url: task.download_page_href,
                 title: task.title,
+                fileUrl: task.file_url ?? "",
             });
             setTasks(prev => prev.map(t =>
                 t.url === task.url ? { ...t, status: "done", progress: 100, savePath } : t
@@ -151,6 +152,7 @@ export function useDownloadTasks(baseTasks: Task[], onRemoveTask: (url: string) 
                 const savePath = await invoke<string>("download_with_progress", {
                     url: next.download_page_href,
                     title: next.title,
+                    fileUrl: next.file_url ?? "",
                 });
                 completed++;
                 setBatchProgress(prev => ({ ...prev, current: completed }));

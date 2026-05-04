@@ -20,7 +20,7 @@ pub fn start_clipboard_monitor(app_handle: AppHandle, running: Arc<AtomicBool>) 
         let mut ctx: ClipboardContext = match ClipboardProvider::new() {
             Ok(c) => c,
             Err(e) => {
-                eprintln!("Monitor: 剪貼簿初始化失敗: {}", e);
+                tracing::error!("Monitor: 剪貼簿初始化失敗: {}", e);
                 return;
             }
         };
@@ -51,7 +51,7 @@ pub fn start_clipboard_monitor(app_handle: AppHandle, running: Arc<AtomicBool>) 
 
                             if !recent_urls.contains_key(&normalized_url) {
                                 recent_urls.insert(normalized_url.clone(), now);
-                                println!("Monitor: 偵測到有效 {} 連結: {}", site.to_string(), normalized_url);
+                                tracing::info!("Monitor: 偵測到有效 {} 連結: {}", site.to_string(), normalized_url);
 
                                 let handle = app_handle.clone();
                                 let url_to_fetch = normalized_url.clone();
@@ -88,10 +88,10 @@ pub fn start_clipboard_monitor(app_handle: AppHandle, running: Arc<AtomicBool>) 
                                                     let _ = handle.emit("new-valid-url-payload", payload);
                                                 }
                                                 Ok(false) => {}
-                                                Err(e) => eprintln!("DB Error: {:?}", e),
+                                                Err(e) => tracing::error!("DB Error: {:?}", e),
                                             }
                                         }
-                                        Err(e) => eprintln!("Fetch Error: {}", e),
+                                        Err(e) => tracing::error!("Fetch Error: {}", e),
                                     }
                                 });
                             }
