@@ -191,52 +191,63 @@ pub async fn download(
     }
 
     let total_size = resp.content_length().unwrap_or(0);
-    let mut file = File::create(&save_path).map_err(|e| e.to_string())?;
-    let mut downloaded: u64 = 0;
-    let mut stream = resp.bytes_stream();
-    let mut manager = DownloadManager::new();
-    manager.start_download(total_size);
 
-    let mut throttle_downloaded: u64 = 0;
-    let mut throttle_start = std::time::Instant::now();
-    let mut last_limit = bandwidth_limit_bps.load(Ordering::Relaxed);
-    let mut last_emit = std::time::Instant::now();
-    let emit_interval = std::time::Duration::from_millis(250);
+    // 串流寫檔包進 async block：任何失敗（含取消）統一在外層刪除殘檔，
+    // 避免半截 .zip 留在下載目錄被 monitor 的存在檢查誤判
+    let result: Result<(), String> = async {
+        let mut file = File::create(&save_path).map_err(|e| e.to_string())?;
+        let mut downloaded: u64 = 0;
+        let mut stream = resp.bytes_stream();
+        let mut manager = DownloadManager::new();
+        manager.start_download(total_size);
 
-    while let Some(chunk) = stream.next().await {
-        if cancelled.load(Ordering::Relaxed) {
-            drop(file);
-            let _ = std::fs::remove_file(&save_path);
-            return Err("下載已取消".to_string());
-        }
+        let mut throttle_downloaded: u64 = 0;
+        let mut throttle_start = std::time::Instant::now();
+        let mut last_limit = bandwidth_limit_bps.load(Ordering::Relaxed);
+        let mut last_emit = std::time::Instant::now();
+        let emit_interval = std::time::Duration::from_millis(250);
 
-        let chunk = chunk.map_err(|e| e.to_string())?;
-        file.write_all(&chunk).map_err(|e| e.to_string())?;
-        downloaded += chunk.len() as u64;
-
-        let current_limit = bandwidth_limit_bps.load(Ordering::Relaxed);
-        if current_limit != last_limit {
-            throttle_start = std::time::Instant::now();
-            throttle_downloaded = 0;
-            last_limit = current_limit;
-        }
-        throttle_downloaded += chunk.len() as u64;
-
-        if current_limit > 0 {
-            let expected = std::time::Duration::from_secs_f64(
-                throttle_downloaded as f64 / current_limit as f64,
-            );
-            let actual = throttle_start.elapsed();
-            if expected > actual {
-                tokio::time::sleep(expected - actual).await;
+        while let Some(chunk) = stream.next().await {
+            if cancelled.load(Ordering::Relaxed) {
+                return Err("下載已取消".to_string());
             }
-        }
 
-        // 節流：每 250ms 發一次進度事件
-        if last_emit.elapsed() >= emit_interval {
-            let metrics = manager.calculate_metrics(downloaded, total_size);
-            app_handle
-                .emit(
+            let chunk = chunk.map_err(|e| e.to_string())?;
+            file.write_all(&chunk).map_err(|e| e.to_string())?;
+            downloaded += chunk.len() as u64;
+
+            let current_limit = bandwidth_limit_bps.load(Ordering::Relaxed);
+            if current_limit != last_limit {
+                throttle_start = std::time::Instant::now();
+                throttle_downloaded = 0;
+                last_limit = current_limit;
+            }
+            throttle_downloaded += chunk.len() as u64;
+
+            if current_limit > 0 {
+                let expected = std::time::Duration::from_secs_f64(
+                    throttle_downloaded as f64 / current_limit as f64,
+                );
+                let actual = throttle_start.elapsed();
+                if expected > actual {
+                    // 限速 sleep 切小段，期間仍能即時回應取消
+                    let mut remaining = expected - actual;
+                    let step = std::time::Duration::from_millis(250);
+                    while remaining > std::time::Duration::ZERO {
+                        if cancelled.load(Ordering::Relaxed) {
+                            return Err("下載已取消".to_string());
+                        }
+                        let d = remaining.min(step);
+                        tokio::time::sleep(d).await;
+                        remaining -= d;
+                    }
+                }
+            }
+
+            // 節流：每 250ms 發一次進度事件；emit 失敗只記錄，不中斷下載
+            if last_emit.elapsed() >= emit_interval {
+                let metrics = manager.calculate_metrics(downloaded, total_size);
+                if let Err(e) = app_handle.emit(
                     "download_progress",
                     DownloadProgress {
                         url: source_url.clone(),
@@ -244,16 +255,16 @@ pub async fn download(
                         speed_bytes_per_sec: metrics.speed_bytes_per_sec,
                         time_remaining_secs: metrics.time_remaining_secs,
                     },
-                )
-                .map_err(|e| e.to_string())?;
-            last_emit = std::time::Instant::now();
+                ) {
+                    tracing::warn!("進度事件 emit 失敗: {}", e);
+                }
+                last_emit = std::time::Instant::now();
+            }
         }
-    }
 
-    // 下載完成後補發最終進度（確保前端顯示 100%）
-    let metrics = manager.calculate_metrics(downloaded, total_size);
-    app_handle
-        .emit(
+        // 下載完成後補發最終進度（確保前端顯示 100%）
+        let metrics = manager.calculate_metrics(downloaded, total_size);
+        if let Err(e) = app_handle.emit(
             "download_progress",
             DownloadProgress {
                 url: source_url.clone(),
@@ -261,8 +272,16 @@ pub async fn download(
                 speed_bytes_per_sec: metrics.speed_bytes_per_sec,
                 time_remaining_secs: metrics.time_remaining_secs,
             },
-        )
-        .map_err(|e| e.to_string())?;
+        ) {
+            tracing::warn!("進度事件 emit 失敗: {}", e);
+        }
 
-    Ok(())
+        Ok(())
+    }
+    .await;
+
+    if result.is_err() {
+        let _ = std::fs::remove_file(&save_path);
+    }
+    result
 }

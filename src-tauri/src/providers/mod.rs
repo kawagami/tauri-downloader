@@ -86,15 +86,36 @@ impl Site {
     ) -> Result<(), String> {
         match self {
             Site::Wnacg => {
-                let file_url = if !cached_file_url.is_empty() {
+                let had_cache = !cached_file_url.is_empty();
+                let file_url = if had_cache {
                     cached_file_url
                 } else {
                     wnacg::get_file_url(app_handle, &source_url)
                         .await
                         .map_err(|e| e.to_string())?
                 };
-                wnacg::download(client, app_handle, source_url, file_url, save_path, cancelled, bandwidth_limit_bps)
-                    .await
+                let result = wnacg::download(
+                    client,
+                    app_handle,
+                    source_url.clone(),
+                    file_url,
+                    save_path.clone(),
+                    cancelled.clone(),
+                    bandwidth_limit_bps.clone(),
+                )
+                .await;
+
+                // 快取的 file_url 可能過期：404 時重抓最新連結再試一次，
+                // 重抓本身 404（下載頁已消失）才回傳 NOT_FOUND
+                if had_cache && matches!(&result, Err(e) if e == "NOT_FOUND") {
+                    tracing::info!("快取 file_url 失效，重新抓取: {}", source_url);
+                    let fresh_url = wnacg::get_file_url(app_handle, &source_url)
+                        .await
+                        .map_err(|e| e.to_string())?;
+                    return wnacg::download(client, app_handle, source_url, fresh_url, save_path, cancelled, bandwidth_limit_bps)
+                        .await;
+                }
+                result
             }
             Site::NHentai => Err("NHentai 下載尚未實作".to_string()),
         }

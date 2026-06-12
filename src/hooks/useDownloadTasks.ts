@@ -175,14 +175,14 @@ export function useDownloadTasks(baseTasks: Task[], onRemoveTask: (url: string) 
     };
 
     const reorderTasks = useCallback((activeUrl: string, overUrl: string) => {
-        setTasks(prev => {
-            const oldIndex = prev.findIndex(t => t.url === activeUrl);
-            const newIndex = prev.findIndex(t => t.url === overUrl);
-            if (oldIndex === -1 || newIndex === -1) return prev;
-            const next = arrayMove(prev, oldIndex, newIndex);
-            invoke("reorder_tasks", { urls: next.map(t => t.url) }).catch(() => {});
-            return next;
-        });
+        // 先算結果再 setState，invoke 不放進 updater（StrictMode 會雙呼 updater）
+        const prev = tasksRef.current;
+        const oldIndex = prev.findIndex(t => t.url === activeUrl);
+        const newIndex = prev.findIndex(t => t.url === overUrl);
+        if (oldIndex === -1 || newIndex === -1) return;
+        const next = arrayMove(prev, oldIndex, newIndex);
+        setTasks(next);
+        invoke("reorder_tasks", { urls: next.map(t => t.url) }).catch(() => {});
     }, []);
 
     return {

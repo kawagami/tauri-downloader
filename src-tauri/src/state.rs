@@ -22,6 +22,8 @@ impl AppState {
             db: Mutex::new(db),
             client: Client::builder()
                 .connect_timeout(Duration::from_secs(30))
+                // 單次 read 間隔超時，避免 server 停止傳輸時串流永久卡住
+                .read_timeout(Duration::from_secs(30))
                 .build()
                 .expect("failed to build reqwest client"),
             monitor_running,
