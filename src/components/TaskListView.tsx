@@ -51,11 +51,7 @@ const SortableRow: React.FC<SortableRowProps> = ({ task, onRemoveTask, onDownloa
 
     return (
         <tr ref={setNodeRef} style={rowStyle}>
-            <td
-                {...attributes}
-                {...listeners}
-                style={{ cursor: "grab", textAlign: "center", color: "#9ca3af", userSelect: "none", width: 20 }}
-            >
+            <td {...attributes} {...listeners} className="drag-handle">
                 ⠿
             </td>
             <td style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
@@ -63,7 +59,7 @@ const SortableRow: React.FC<SortableRowProps> = ({ task, onRemoveTask, onDownloa
                     href={task.url}
                     target="_blank"
                     rel="noreferrer"
-                    style={{ textDecoration: 'none', color: '#3b82f6' }}
+                    className="task-title-link"
                     title={task.url}
                 >
                     {task.title}
@@ -83,7 +79,7 @@ const SortableRow: React.FC<SortableRowProps> = ({ task, onRemoveTask, onDownloa
                 )}
             </td>
 
-            <td style={{ fontSize: "0.75rem", color: "#6b7280", whiteSpace: "nowrap", overflow: "hidden" }}>
+            <td className="meta-text">
                 {task.created_at
                     ? new Date(task.created_at * 1000).toLocaleString()
                     : "-"}
@@ -94,64 +90,58 @@ const SortableRow: React.FC<SortableRowProps> = ({ task, onRemoveTask, onDownloa
                         {(task.progress ?? 0) < 0 ? (
                             <div className="progress-indeterminate" />
                         ) : (
-                            <div style={{ background: "#e5e7eb", height: 8, borderRadius: 4, width: "100%" }}>
-                                <div style={{
-                                    background: "#22c55e",
-                                    height: 8,
-                                    borderRadius: 4,
-                                    width: `${task.progress ?? 0}%`,
-                                }} />
+                            <div className="progress-track">
+                                <div className="progress-fill" style={{ width: `${task.progress ?? 0}%` }} />
                             </div>
                         )}
-                        <div style={{ fontSize: "0.75rem", color: "#6b7280", marginTop: 4, lineHeight: "1.6" }}>
+                        <div className="progress-meta">
                             <div>{(task.progress ?? 0) < 0 ? "計算中" : `${(task.progress ?? 0).toFixed(1)}%`}</div>
                             {task.speed != null && task.speed > 0 && <div>{formatSpeed(task.speed)}</div>}
                             {task.timeRemaining != null && task.timeRemaining > 0 && <div>{formatTime(task.timeRemaining)}</div>}
                         </div>
                     </>
                 ) : task.status === "done" ? (
-                    <span style={{ color: "#16a34a" }}>完成 ✅</span>
+                    <span className="status-badge status-done">完成 ✅</span>
                 ) : task.status === "error" ? (
                     <div>
-                        <span style={{ color: "#ef4444" }}>錯誤 ❌</span>
+                        <span className="status-badge status-error">錯誤 ❌</span>
                         {task.errorMessage && (
-                            <div style={{ fontSize: "0.7rem", color: "#ef4444", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={task.errorMessage}>
+                            <div className="status-msg" style={{ color: "var(--danger)" }} title={task.errorMessage}>
                                 {task.errorMessage}
                             </div>
                         )}
                     </div>
                 ) : task.status === "not_found" ? (
                     <div>
-                        <span style={{ color: "#f87171" }}>找不到 🚫</span>
+                        <span className="status-badge status-not-found">找不到 🚫</span>
                         {task.errorMessage && (
-                            <div style={{ fontSize: "0.7rem", color: "#f87171", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={task.errorMessage}>
+                            <div className="status-msg" style={{ color: "#b91c1c" }} title={task.errorMessage}>
                                 {task.errorMessage}
                             </div>
                         )}
                     </div>
                 ) : task.status === "paused" ? (
-                    <span style={{ color: "#f59e0b" }}>已暫停 ⏸</span>
+                    <span className="status-badge status-paused">已暫停 ⏸</span>
                 ) : (
-                    <span>-</span>
+                    <span style={{ color: "var(--text-subtle)" }}>-</span>
                 )}
             </td>
             <td>
-                <button onClick={() => onRemoveTask(task.url)}>刪除</button>
-                <button
-                    onClick={() => onDownload(task)}
-                    disabled={task.status === "downloading"}
-                    style={{ marginLeft: "5px" }}
-                >
-                    {task.status === "downloading" ? "下載中..." : "下載"}
-                </button>
-                {task.status === "done" && task.savePath && (
+                <div style={{ display: "flex", gap: 6 }}>
+                    <button className="btn-sm btn-danger" onClick={() => onRemoveTask(task.url)}>刪除</button>
                     <button
-                        onClick={() => revealItemInDir(task.savePath!)}
-                        style={{ marginLeft: "5px" }}
+                        className="btn-sm btn-primary"
+                        onClick={() => onDownload(task)}
+                        disabled={task.status === "downloading"}
                     >
-                        開啟
+                        {task.status === "downloading" ? "下載中..." : "下載"}
                     </button>
-                )}
+                    {task.status === "done" && task.savePath && (
+                        <button className="btn-sm" onClick={() => revealItemInDir(task.savePath!)}>
+                            開啟
+                        </button>
+                    )}
+                </div>
             </td>
         </tr>
     );

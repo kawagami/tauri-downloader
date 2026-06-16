@@ -46,7 +46,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                 />
                 <label htmlFor="monitorClipboard">監控剪貼簿</label>
             </div>
-            <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+            <div className="toolbar-field">
                 <input
                     type="number"
                     min="0"
@@ -59,10 +59,10 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                     }}
                     style={{ width: "80px" }}
                 />
-                <span style={{ fontSize: "12px" }}>KB/s</span>
+                <span>KB/s</span>
             </div>
-            <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
-                <span style={{ fontSize: "12px" }}>通知音量</span>
+            <div className="toolbar-field">
+                <span>通知音量</span>
                 <input
                     type="range"
                     min="0"
@@ -72,31 +72,20 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                     onChange={e => onDingVolumeChange(Number(e.target.value))}
                     style={{ width: "80px" }}
                 />
-                <span style={{ fontSize: "12px", width: "28px" }}>{Math.round(dingVolume * 100)}%</span>
+                <span style={{ width: "28px" }}>{Math.round(dingVolume * 100)}%</span>
             </div>
         </div>
         <div className="toolbar-actions">
             <button onClick={onRemoveAll}>全部刪除</button>
-            <button
-                onClick={onClearDone}
-                disabled={!hasDoneTasks}
-                style={{ marginLeft: "10px" }}
-            >
+            <button onClick={onClearDone} disabled={!hasDoneTasks}>
                 清除已完成
             </button>
             {!isBatchDownloading ? (
-                <button
-                    onClick={onDownloadAll}
-                    disabled={tasksEmpty}
-                    style={{ marginLeft: "10px" }}
-                >
+                <button className="btn-primary" onClick={onDownloadAll} disabled={tasksEmpty}>
                     全部下載
                 </button>
             ) : (
-                <button
-                    onClick={onStopDownload}
-                    style={{ marginLeft: "10px", background: "#f87171", color: "white" }}
-                >
+                <button className="btn-danger" onClick={onStopDownload}>
                     停止下載 ({batchProgress.current} / {batchProgress.total})
                 </button>
             )}
