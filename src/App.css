@@ -48,6 +48,44 @@ body {
   background-color: var(--bg);
 }
 
+/* ---------- 拖曳新增 ---------- */
+
+.drop-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background-color: rgba(59, 130, 246, 0.08);
+  border: 3px dashed var(--primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.drop-overlay-box {
+  background-color: var(--surface);
+  color: var(--primary);
+  font-size: 18px;
+  font-weight: 600;
+  padding: 20px 32px;
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lg);
+}
+
+.drop-error {
+  position: fixed;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 101;
+  background-color: var(--danger);
+  color: #fff;
+  font-size: 13px;
+  padding: 8px 16px;
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow);
+}
+
 /* ---------- Toolbar ---------- */
 
 .sticky-toolbar {
@@ -67,6 +105,13 @@ body {
   display: flex;
   align-items: center;
   gap: 10px;
+}
+
+.toolbar-summary {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--text-muted);
+  white-space: nowrap;
 }
 
 .checkbox-group {
@@ -233,6 +278,13 @@ button:disabled {
   border-bottom: none;
 }
 
+.empty-state {
+  text-align: center !important;
+  padding: 48px 16px !important;
+  color: var(--text-subtle);
+  font-size: 14px;
+}
+
 .drag-handle {
   cursor: grab;
   text-align: center;
@@ -331,6 +383,12 @@ button:disabled {
 .status-paused {
   color: var(--warning);
   background: #fef3c7;
+}
+
+.status-idle {
+  color: var(--text-muted);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
 }
 
 .status-msg {

@@ -123,7 +123,7 @@ const SortableRow: React.FC<SortableRowProps> = ({ task, onRemoveTask, onDownloa
                 ) : task.status === "paused" ? (
                     <span className="status-badge status-paused">已暫停 ⏸</span>
                 ) : (
-                    <span style={{ color: "var(--text-subtle)" }}>-</span>
+                    <span className="status-badge status-idle">待下載</span>
                 )}
             </td>
             <td>
@@ -206,14 +206,22 @@ export const TaskListView: React.FC<TaskListViewProps> = ({
                     </thead>
                     <SortableContext items={tasks.map(t => t.url)} strategy={verticalListSortingStrategy}>
                         <tbody>
-                            {tasks.map((task) => (
-                                <SortableRow
-                                    key={task.url}
-                                    task={task}
-                                    onRemoveTask={onRemoveTask}
-                                    onDownload={onDownload}
-                                />
-                            ))}
+                            {tasks.length === 0 ? (
+                                <tr>
+                                    <td colSpan={COL_NAMES.length + 1} className="empty-state">
+                                        尚無任務 — 開啟「監控剪貼簿」並複製連結，或直接拖入連結
+                                    </td>
+                                </tr>
+                            ) : (
+                                tasks.map((task) => (
+                                    <SortableRow
+                                        key={task.url}
+                                        task={task}
+                                        onRemoveTask={onRemoveTask}
+                                        onDownload={onDownload}
+                                    />
+                                ))
+                            )}
                         </tbody>
                     </SortableContext>
                 </table>

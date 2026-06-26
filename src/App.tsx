@@ -6,6 +6,7 @@ import "./App.css";
 
 import { useTaskManager } from './hooks/useTaskManager';
 import { useClipboardMonitor } from './hooks/useClipboardMonitor';
+import { useUrlDrop } from './hooks/useUrlDrop';
 import { useDownloadTasks } from './hooks/useDownloadTasks';
 import { Toolbar } from './components/Toolbar';
 import { TaskListView } from './components/TaskListView';
@@ -14,6 +15,7 @@ import { TaskListView } from './components/TaskListView';
 function App() {
   const { tasks, addTask, removeTask, removeAllTasks, volume, setVolume } = useTaskManager();
   const { monitorClipboard, setMonitorClipboard } = useClipboardMonitor(addTask, tasks);
+  const { isDragging, dropError, onDragEnter, onDragOver, onDragLeave, onDrop } = useUrlDrop(addTask);
   const {
     tasks: downloadTasks,
     handleDownload,
@@ -28,6 +30,11 @@ function App() {
   const [bandwidthKbps, setBandwidthKbps] = useState<number>(() =>
     Number(localStorage.getItem("bandwidthKbps") || "0")
   );
+
+  const doneCount = downloadTasks.filter(t => t.status === "done").length;
+  const pendingCount = downloadTasks.filter(
+    t => t.status === "idle" || t.status === "error" || t.status === "paused"
+  ).length;
 
   useEffect(() => {
     invoke("set_bandwidth_limit", { bytesPerSec: bandwidthKbps * 1024 });
@@ -44,7 +51,19 @@ function App() {
   }, [setMonitorClipboard]);
 
   return (
-    <div className="container">
+    <div
+      className="container"
+      onDragEnter={onDragEnter}
+      onDragOver={onDragOver}
+      onDragLeave={onDragLeave}
+      onDrop={onDrop}
+    >
+      {isDragging && (
+        <div className="drop-overlay">
+          <div className="drop-overlay-box">拖入連結即可新增任務</div>
+        </div>
+      )}
+      {dropError && <div className="drop-error">{dropError}</div>}
       <Toolbar
         monitorClipboard={monitorClipboard}
         onMonitorChange={handleMonitorChange}
@@ -54,7 +73,10 @@ function App() {
         onStopDownload={stopBatchDownload}
         isBatchDownloading={isBatchDownloading}
         batchProgress={batchProgress}
-        tasksEmpty={downloadTasks.length === 0}
+        totalCount={downloadTasks.length}
+        doneCount={doneCount}
+        pendingCount={pendingCount}
+        hasDownloadable={pendingCount > 0}
         hasDoneTasks={downloadTasks.some(t => t.status === "done")}
         bandwidthKbps={bandwidthKbps}
         onBandwidthChange={handleBandwidthChange}

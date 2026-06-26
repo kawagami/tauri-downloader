@@ -11,7 +11,10 @@ interface ToolbarProps {
     onStopDownload: () => void;
     isBatchDownloading: boolean;
     batchProgress: { current: number; total: number };
-    tasksEmpty: boolean;
+    totalCount: number;
+    doneCount: number;
+    pendingCount: number;
+    hasDownloadable: boolean;
     hasDoneTasks: boolean;
     bandwidthKbps: number;
     onBandwidthChange: (kbps: number) => void;
@@ -28,7 +31,10 @@ export const Toolbar: React.FC<ToolbarProps> = ({
     onStopDownload,
     isBatchDownloading,
     batchProgress,
-    tasksEmpty,
+    totalCount,
+    doneCount,
+    pendingCount,
+    hasDownloadable,
     hasDoneTasks,
     bandwidthKbps,
     onBandwidthChange,
@@ -36,7 +42,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
     onDingVolumeChange,
 }) => (
     <div className="sticky-toolbar" style={{ flexDirection: "column", alignItems: "flex-start", gap: "6px" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "16px", flexWrap: "wrap" }}>
             <div className="checkbox-group">
                 <input
                     type="checkbox"
@@ -74,14 +80,26 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                 />
                 <span style={{ width: "28px" }}>{Math.round(dingVolume * 100)}%</span>
             </div>
+            {totalCount > 0 && (
+                <div className="toolbar-summary">
+                    共 {totalCount} 筆 · {doneCount} 完成 · {pendingCount} 待下載
+                </div>
+            )}
         </div>
-        <div className="toolbar-actions">
-            <button onClick={onRemoveAll}>全部刪除</button>
+        <div className="toolbar-actions" style={{ flexWrap: "wrap" }}>
+            <button
+                onClick={() => {
+                    if (window.confirm(`確定刪除全部 ${totalCount} 筆任務？`)) onRemoveAll();
+                }}
+                disabled={totalCount === 0}
+            >
+                全部刪除
+            </button>
             <button onClick={onClearDone} disabled={!hasDoneTasks}>
                 清除已完成
             </button>
             {!isBatchDownloading ? (
-                <button className="btn-primary" onClick={onDownloadAll} disabled={tasksEmpty}>
+                <button className="btn-primary" onClick={onDownloadAll} disabled={!hasDownloadable}>
                     全部下載
                 </button>
             ) : (
