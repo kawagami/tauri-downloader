@@ -1,7 +1,7 @@
 // src/commands/common.rs
 
 use crate::db;
-use crate::providers::ClipboardPayload;
+use crate::providers::{ClipboardPayload, Site};
 use crate::state::AppState;
 
 use clipboard::{ClipboardContext, ClipboardProvider};
@@ -59,4 +59,21 @@ pub fn set_bandwidth_limit(state: State<'_, AppState>, bytes_per_sec: u64) {
 #[tauri::command]
 pub fn reorder_tasks(app_handle: AppHandle, urls: Vec<String>) -> Result<(), String> {
     db::reorder_tasks(&app_handle, &urls).map_err(|e| format!("排序失敗: {:?}", e))
+}
+
+/// 手動新增任務（拖曳連結觸發）：複用剪貼簿同一條 pipeline
+/// （辨識站台 → 驗證 → 抓元資料 → 寫 DB），回傳 payload 讓前端直接 addTask。
+/// 不 emit 事件，避免與剪貼簿監控的 listener double-add；前端 addTask 與 DB UNIQUE 各自去重。
+#[tauri::command]
+pub async fn add_url_manually(
+    app_handle: AppHandle,
+    url: String,
+) -> Result<ClipboardPayload, String> {
+    let url = url.trim().to_string();
+    let site = Site::from_url(&url)?;
+    let normalized = site.validate(&url)?;
+    let payload = site.fetch_details(&app_handle, &normalized).await?;
+    // 重複 url 回 Ok(false)，仍回傳 payload（前端去重）；手動加不做檔案已存在檢查（使用者明示意圖）
+    db::insert_task(&app_handle, &payload).map_err(|e| format!("寫入資料庫失敗: {:?}", e))?;
+    Ok(payload)
 }

@@ -52,6 +52,7 @@ pub fn run() {
             commands::common::update_task_status,
             commands::common::set_bandwidth_limit,
             commands::common::reorder_tasks,
+            commands::common::add_url_manually,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
