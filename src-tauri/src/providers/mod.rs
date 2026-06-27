@@ -20,6 +20,7 @@ pub struct ClipboardPayload {
     pub image: String,
     pub download_page_href: String,
     pub file_url: String,
+    pub file_size: i64, // 檔案位元組數，-1 = 未知（探測失敗或站台未回報）
     pub created_at: i64,
     pub db_status: String,
 }

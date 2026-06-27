@@ -18,6 +18,7 @@ pub fn init_db(app_handle: &AppHandle) -> Result<Connection, Box<dyn std::error:
             image TEXT,
             download_page_href TEXT,
             file_url TEXT NOT NULL DEFAULT '',
+            file_size INTEGER DEFAULT -1,
             created_at INTEGER DEFAULT 0,
             db_status TEXT NOT NULL DEFAULT 'idle',
             sort_order INTEGER DEFAULT 0
@@ -29,6 +30,7 @@ pub fn init_db(app_handle: &AppHandle) -> Result<Connection, Box<dyn std::error:
     conn.execute("ALTER TABLE tasks ADD COLUMN db_status TEXT NOT NULL DEFAULT 'idle'", []).ok();
     conn.execute("ALTER TABLE tasks ADD COLUMN sort_order INTEGER DEFAULT 0", []).ok();
     conn.execute("ALTER TABLE tasks ADD COLUMN file_url TEXT NOT NULL DEFAULT ''", []).ok();
+    conn.execute("ALTER TABLE tasks ADD COLUMN file_size INTEGER DEFAULT -1", []).ok();
     conn.execute("UPDATE tasks SET sort_order = id WHERE sort_order = 0", []).ok();
 
     Ok(conn)
@@ -40,14 +42,15 @@ pub fn insert_task(app_handle: &AppHandle, payload: &ClipboardPayload) -> Result
     let conn = state.db.lock().unwrap();
 
     let affected = conn.execute(
-        "INSERT OR IGNORE INTO tasks (url, title, image, download_page_href, file_url, created_at, db_status, sort_order)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM tasks))",
+        "INSERT OR IGNORE INTO tasks (url, title, image, download_page_href, file_url, file_size, created_at, db_status, sort_order)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM tasks))",
         params![
             payload.url,
             payload.title,
             payload.image,
             payload.download_page_href,
             payload.file_url,
+            payload.file_size,
             payload.created_at,
             payload.db_status,
         ],
@@ -62,7 +65,7 @@ pub fn get_all_tasks(app_handle: &AppHandle) -> Result<Vec<ClipboardPayload>> {
     let conn = state.db.lock().unwrap();
 
     let mut stmt = conn.prepare(
-        "SELECT url, title, image, download_page_href, file_url, created_at, db_status FROM tasks ORDER BY sort_order ASC",
+        "SELECT url, title, image, download_page_href, file_url, file_size, created_at, db_status FROM tasks ORDER BY sort_order ASC",
     )?;
 
     let task_iter = stmt.query_map([], |row| {
@@ -72,8 +75,9 @@ pub fn get_all_tasks(app_handle: &AppHandle) -> Result<Vec<ClipboardPayload>> {
             image: row.get(2)?,
             download_page_href: row.get(3)?,
             file_url: row.get::<_, Option<String>>(4)?.unwrap_or_default(),
-            created_at: row.get::<_, Option<i64>>(5)?.unwrap_or(0),
-            db_status: row.get::<_, Option<String>>(6)?.unwrap_or_else(|| "idle".to_string()),
+            file_size: row.get::<_, Option<i64>>(5)?.unwrap_or(-1),
+            created_at: row.get::<_, Option<i64>>(6)?.unwrap_or(0),
+            db_status: row.get::<_, Option<String>>(7)?.unwrap_or_else(|| "idle".to_string()),
         })
     })?;
 

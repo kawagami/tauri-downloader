@@ -31,8 +31,16 @@ const formatTime = (secs: number) => {
     return `${Math.floor(secs / 60)}m ${Math.ceil(secs % 60)}s`;
 };
 
-const COL_NAMES = ["標題", "預覽圖", "新增時間", "進度", "操作"];
-const DEFAULT_WIDTHS = [300, 80, 140, 120, 130];
+const formatBytes = (bytes: number) => {
+    if (bytes < 0) return "未知";
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+    return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+};
+
+const COL_NAMES = ["標題", "預覽圖", "新增時間", "大小", "進度", "操作"];
+const DEFAULT_WIDTHS = [300, 80, 140, 90, 120, 130];
 
 interface SortableRowProps {
     task: DownloadableTask;
@@ -84,6 +92,7 @@ const SortableRow: React.FC<SortableRowProps> = ({ task, onRemoveTask, onDownloa
                     ? new Date(task.created_at * 1000).toLocaleString()
                     : "-"}
             </td>
+            <td className="meta-text">{formatBytes(task.file_size ?? -1)}</td>
             <td>
                 {task.status === "downloading" ? (
                     <>

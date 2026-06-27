@@ -6,6 +6,7 @@ export interface Task {
     image: string;
     download_page_href: string;
     file_url: string;
+    file_size: number; // 位元組，-1 = 未知
     created_at: number;
     db_status: string;
 }
@@ -25,6 +26,7 @@ export interface ClipboardPayload {
     image: string;
     download_page_href: string;
     file_url: string;
+    file_size: number; // 位元組，-1 = 未知
     created_at: number;
     db_status: string;
 }

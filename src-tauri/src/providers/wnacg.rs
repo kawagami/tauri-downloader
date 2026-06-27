@@ -90,6 +90,46 @@ pub async fn get_file_url(
     Ok(href)
 }
 
+/// Range 探測：對實際 ZIP 連結發 `Range: bytes=0-0`，驗證能否真的取到 bytes
+/// 並回傳檔案總大小。比 HEAD 可靠（強制走真實下載路徑，有些 CDN 不支援 HEAD）。
+/// - 206 Partial：從 `Content-Range: bytes 0-0/{total}` 解析總大小
+/// - 200（伺服器忽略 Range）：退回 `Content-Length`
+/// - 404/410：回 `NOT_FOUND`，代表連結預檢即失效
+async fn probe_file_size(
+    client: &reqwest::Client,
+    file_url: &str,
+) -> Result<i64, Box<dyn std::error::Error + Send + Sync>> {
+    let res = client
+        .get(file_url)
+        .header(reqwest::header::RANGE, "bytes=0-0")
+        .send()
+        .await?;
+    let status = res.status();
+
+    if matches!(status, reqwest::StatusCode::NOT_FOUND | reqwest::StatusCode::GONE) {
+        return Err("NOT_FOUND".into());
+    }
+
+    if status == reqwest::StatusCode::PARTIAL_CONTENT {
+        if let Some(total) = res
+            .headers()
+            .get(reqwest::header::CONTENT_RANGE)
+            .and_then(|v| v.to_str().ok())
+            .and_then(|cr| cr.rsplit('/').next())
+            .and_then(|s| s.trim().parse::<i64>().ok())
+        {
+            return Ok(total);
+        }
+    }
+
+    if status.is_success() {
+        // 伺服器忽略 Range（回 200），退回 Content-Length；拿不到則回 -1（未知）
+        return Ok(res.content_length().map(|l| l as i64).unwrap_or(-1));
+    }
+
+    Err(format!("探測失敗，狀態碼: {}", status).into())
+}
+
 pub async fn fetch_payload_details(
     app_handle: &AppHandle,
     url: String,
@@ -148,8 +188,25 @@ pub async fn fetch_payload_details(
     let file_url = get_file_url(app_handle, &download_page_href)
         .await
         .unwrap_or_default();
+
+    // Range 探測：驗證連結真的能下載並取得檔案大小
+    let mut file_size: i64 = -1;
+    let mut db_status = "idle".to_string();
     if file_url.is_empty() {
         tracing::warn!("fetch_payload_details: 無法預取 file_url，下載時將重新抓取");
+    } else {
+        match probe_file_size(client, &file_url).await {
+            Ok(size) => file_size = size,
+            Err(e) if e.to_string() == "NOT_FOUND" => {
+                // 預檢就確定 ZIP 連結已失效，直接標 not_found
+                tracing::warn!("fetch_payload_details: ZIP 連結預檢 404/410: {}", file_url);
+                db_status = "not_found".to_string();
+            }
+            Err(e) => {
+                // 暫時性失敗，大小未知，仍以 idle 加入、下載時再試
+                tracing::warn!("fetch_payload_details: 大小探測失敗（{}），標為未知", e);
+            }
+        }
     }
 
     let created_at = std::time::SystemTime::now()
@@ -163,8 +220,9 @@ pub async fn fetch_payload_details(
         image,
         download_page_href,
         file_url,
+        file_size,
         created_at,
-        db_status: "idle".to_string(),
+        db_status,
     })
 }
 
