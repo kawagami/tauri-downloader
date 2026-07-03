@@ -1,4 +1,4 @@
-use crate::{providers::Site, state::AppState, utils};
+use crate::{error::DownloadError, providers::Site, state::AppState, utils};
 use std::sync::atomic::Ordering;
 use tauri::{AppHandle, Manager, State};
 
@@ -9,17 +9,17 @@ pub async fn download_with_progress(
     file_url: String,
     state: State<'_, AppState>,
     app_handle: AppHandle,
-) -> Result<String, String> {
+) -> Result<String, DownloadError> {
     state.download_cancelled.store(false, Ordering::Relaxed);
 
     let download_dir = app_handle
         .path()
         .download_dir()
-        .map_err(|e| e.to_string())?;
-    std::fs::create_dir_all(&download_dir).map_err(|e| e.to_string())?;
+        .map_err(|e| DownloadError::Other(e.to_string()))?;
+    std::fs::create_dir_all(&download_dir)?;
     let save_path = utils::fs::get_unique_save_path(download_dir, &title);
 
-    let site = Site::from_url(&url)?;
+    let site = Site::from_url(&url).map_err(DownloadError::Other)?;
     site.download(
         &state.client,
         &app_handle,

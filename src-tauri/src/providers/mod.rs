@@ -5,6 +5,8 @@ use std::sync::{atomic::{AtomicBool, AtomicU64}, Arc};
 use serde::{Deserialize, Serialize};
 use tauri::AppHandle;
 
+use crate::error::DownloadError;
+
 pub mod nhentai;
 pub mod wnacg;
 
@@ -84,16 +86,14 @@ impl Site {
         save_path: PathBuf,
         cancelled: Arc<AtomicBool>,
         bandwidth_limit_bps: Arc<AtomicU64>,
-    ) -> Result<(), String> {
+    ) -> Result<(), DownloadError> {
         match self {
             Site::Wnacg => {
                 let had_cache = !cached_file_url.is_empty();
                 let file_url = if had_cache {
                     cached_file_url
                 } else {
-                    wnacg::get_file_url(app_handle, &source_url)
-                        .await
-                        .map_err(|e| e.to_string())?
+                    wnacg::get_file_url(app_handle, &source_url).await?
                 };
                 let result = wnacg::download(
                     client,
@@ -107,18 +107,16 @@ impl Site {
                 .await;
 
                 // 快取的 file_url 可能過期：404 時重抓最新連結再試一次，
-                // 重抓本身 404（下載頁已消失）才回傳 NOT_FOUND
-                if had_cache && matches!(&result, Err(e) if e == "NOT_FOUND") {
+                // 重抓本身 404（下載頁已消失）才回傳 NotFound
+                if had_cache && matches!(&result, Err(DownloadError::NotFound)) {
                     tracing::info!("快取 file_url 失效，重新抓取: {}", source_url);
-                    let fresh_url = wnacg::get_file_url(app_handle, &source_url)
-                        .await
-                        .map_err(|e| e.to_string())?;
+                    let fresh_url = wnacg::get_file_url(app_handle, &source_url).await?;
                     return wnacg::download(client, app_handle, source_url, fresh_url, save_path, cancelled, bandwidth_limit_bps)
                         .await;
                 }
                 result
             }
-            Site::NHentai => Err("NHentai 下載尚未實作".to_string()),
+            Site::NHentai => Err(DownloadError::Other("NHentai 下載尚未實作".to_string())),
         }
     }
 }

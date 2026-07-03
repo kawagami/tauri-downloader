@@ -46,9 +46,10 @@ interface SortableRowProps {
     task: DownloadableTask;
     onRemoveTask: (url: string) => void;
     onDownload: (task: DownloadableTask) => void;
+    isBatchDownloading: boolean;
 }
 
-const SortableRow: React.FC<SortableRowProps> = ({ task, onRemoveTask, onDownload }) => {
+const SortableRow: React.FC<SortableRowProps> = ({ task, onRemoveTask, onDownload, isBatchDownloading }) => {
     const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: task.url });
 
     const rowStyle: React.CSSProperties = {
@@ -137,11 +138,19 @@ const SortableRow: React.FC<SortableRowProps> = ({ task, onRemoveTask, onDownloa
             </td>
             <td>
                 <div style={{ display: "flex", gap: 6 }}>
-                    <button className="btn-sm btn-danger" onClick={() => onRemoveTask(task.url)}>刪除</button>
+                    {/* 下載中禁止刪除：任務移除後後端串流仍會繼續寫檔且無法單獨取消 */}
+                    <button
+                        className="btn-sm btn-danger"
+                        onClick={() => onRemoveTask(task.url)}
+                        disabled={task.status === "downloading"}
+                    >
+                        刪除
+                    </button>
+                    {/* 批次進行中禁止單筆下載：並行下載共用全域取消旗標會互相干擾 */}
                     <button
                         className="btn-sm btn-primary"
                         onClick={() => onDownload(task)}
-                        disabled={task.status === "downloading"}
+                        disabled={task.status === "downloading" || isBatchDownloading}
                     >
                         {task.status === "downloading" ? "下載中..." : "下載"}
                     </button>
@@ -161,6 +170,7 @@ interface TaskListViewProps {
     onRemoveTask: (url: string) => void;
     onDownload: (task: DownloadableTask) => void;
     onReorder: (activeUrl: string, overUrl: string) => void;
+    isBatchDownloading: boolean;
 }
 
 export const TaskListView: React.FC<TaskListViewProps> = ({
@@ -168,6 +178,7 @@ export const TaskListView: React.FC<TaskListViewProps> = ({
     onRemoveTask,
     onDownload,
     onReorder,
+    isBatchDownloading,
 }) => {
     const { colWidths, onMouseDown } = useColumnResize("task-table-col-widths", DEFAULT_WIDTHS);
 
@@ -228,6 +239,7 @@ export const TaskListView: React.FC<TaskListViewProps> = ({
                                         task={task}
                                         onRemoveTask={onRemoveTask}
                                         onDownload={onDownload}
+                                        isBatchDownloading={isBatchDownloading}
                                     />
                                 ))
                             )}

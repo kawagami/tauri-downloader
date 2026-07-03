@@ -10,6 +10,7 @@ use crate::{db::init_db, state::AppState};
 
 pub mod commands;
 pub mod db;
+pub mod error;
 pub mod download_core;
 pub mod monitor;
 pub mod providers;

@@ -8,6 +8,20 @@ import { Task, DownloadableTask } from "../types";
 
 type UiStatus = NonNullable<DownloadableTask["status"]>;
 
+// download_with_progress 失敗時後端回傳 { code, message }（見 src-tauri/src/error.rs），
+// 比對 code 而非錯誤訊息子字串
+type BackendError = { code?: string; message?: string };
+
+function errCode(err: unknown): string {
+    const code = (err as BackendError)?.code;
+    return typeof code === "string" ? code : "OTHER";
+}
+
+function errMessage(err: unknown): string {
+    const msg = (err as BackendError)?.message;
+    return typeof msg === "string" ? msg : String(err);
+}
+
 function dbStatusToUi(dbStatus: string): UiStatus {
     switch (dbStatus) {
         case "not_found": return "not_found";
@@ -38,11 +52,15 @@ export function useDownloadTasks(baseTasks: Task[], onRemoveTask: (url: string) 
 
     useEffect(() => {
         setTasks(prev => {
-            const prevMap = new Map(prev.map(t => [t.url, t]));
-            const merged = baseTasks.map(t =>
-                prevMap.get(t.url) ?? { ...t, status: dbStatusToUi(t.db_status), progress: 0 }
-            );
-            return sortTasks(merged);
+            // 以 prev 順序為準（保留拖曳排序結果），新任務 append 到最後；
+            // 若照 baseTasks 順序重建，reorder 後一新增任務排序就會跳回舊順序
+            const baseUrls = new Set(baseTasks.map(t => t.url));
+            const kept = prev.filter(t => baseUrls.has(t.url));
+            const keptUrls = new Set(kept.map(t => t.url));
+            const added = baseTasks
+                .filter(t => !keptUrls.has(t.url))
+                .map(t => ({ ...t, status: dbStatusToUi(t.db_status), progress: 0 }));
+            return sortTasks([...kept, ...added]);
         });
     }, [baseTasks]);
 
@@ -72,17 +90,17 @@ export function useDownloadTasks(baseTasks: Task[], onRemoveTask: (url: string) 
         return () => unlisten?.();
     }, []);
 
-    // --- 處理下載結果（共用邏輯）---
-    async function applyResult(taskUrl: string, err?: unknown) {
-        if (!err) return; // success handled at call site
-
-        const errStr = String(err);
-        if (errStr.includes("已取消")) {
+    // --- 處理下載失敗（共用邏輯），回傳是否為使用者取消 ---
+    async function applyResult(taskUrl: string, err: unknown): Promise<boolean> {
+        const code = errCode(err);
+        if (code === "CANCELLED") {
             setTasks(prev => prev.map(t =>
                 t.url === taskUrl ? { ...t, status: "paused", progress: 0 } : t
             ));
             await persistStatus(taskUrl, "paused");
-        } else if (errStr.includes("NOT_FOUND")) {
+            return true;
+        }
+        if (code === "NOT_FOUND") {
             await persistStatus(taskUrl, "not_found");
             setTasks(prev =>
                 sortTasks(prev.map(t =>
@@ -91,11 +109,12 @@ export function useDownloadTasks(baseTasks: Task[], onRemoveTask: (url: string) 
                         : t
                 ))
             );
-        } else {
-            setTasks(prev => prev.map(t =>
-                t.url === taskUrl ? { ...t, status: "error", errorMessage: errStr } : t
-            ));
+            return false;
         }
+        setTasks(prev => prev.map(t =>
+            t.url === taskUrl ? { ...t, status: "error", errorMessage: errMessage(err) } : t
+        ));
+        return false;
     }
 
     // --- 單一下載 ---
@@ -132,16 +151,21 @@ export function useDownloadTasks(baseTasks: Task[], onRemoveTask: (url: string) 
         setIsBatchDownloading(true);
         let completed = 0;
 
+        // 每輪批次中每個任務只嘗試一次：失敗任務維持 error 狀態但不再重選，
+        // 否則持久性錯誤（如伺服器一直 500）會無限重試
+        const attempted = new Set<string>();
         const isPending = (t: DownloadableTask) =>
-            t.status === "idle" || t.status === "error" || t.status === "paused";
+            (t.status === "idle" || t.status === "error" || t.status === "paused") &&
+            !attempted.has(t.url);
 
         while (true) {
             if (shouldStop.current) break;
 
             const next = tasksRef.current.find(isPending);
             if (!next) break;
+            attempted.add(next.url);
 
-            const remaining = tasksRef.current.filter(isPending).length;
+            const remaining = tasksRef.current.filter(isPending).length + 1;
             setBatchProgress({ current: completed, total: completed + remaining });
 
             setTasks(prev => prev.map(t =>
@@ -161,8 +185,8 @@ export function useDownloadTasks(baseTasks: Task[], onRemoveTask: (url: string) 
                 ));
                 await persistStatus(next.url, "done");
             } catch (err) {
-                await applyResult(next.url, err);
-                if (String(err).includes("已取消")) break;
+                const cancelled = await applyResult(next.url, err);
+                if (cancelled) break;
             }
         }
 

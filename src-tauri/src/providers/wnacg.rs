@@ -1,4 +1,4 @@
-use crate::{download_core::DownloadManager, providers::{ClipboardPayload, DownloadProgress}, state::AppState};
+use crate::{download_core::DownloadManager, error::DownloadError, providers::{ClipboardPayload, DownloadProgress}, state::AppState};
 
 use futures_util::StreamExt;
 use regex::Regex;
@@ -55,7 +55,7 @@ pub fn validate(content: &str) -> Result<String, String> {
 pub async fn get_file_url(
     app_handle: &AppHandle,
     url: &str,
-) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+) -> Result<String, DownloadError> {
     tracing::debug!("get_file_url: {}", url);
 
     // 取 state 中的 client 執行 reqwest get 請求
@@ -64,10 +64,10 @@ pub async fn get_file_url(
     let res = client.get(url).send().await?;
 
     if matches!(res.status(), reqwest::StatusCode::NOT_FOUND | reqwest::StatusCode::GONE) {
-        return Err("NOT_FOUND".into());
+        return Err(DownloadError::NotFound);
     }
     if !res.status().is_success() {
-        return Err(format!("網絡請求失敗，狀態碼: {}", res.status()).into());
+        return Err(DownloadError::Other(format!("網絡請求失敗，狀態碼: {}", res.status())));
     }
 
     let html_content = res.text().await?;
@@ -75,9 +75,7 @@ pub async fn get_file_url(
 
     let raw = select_first(&document, &["#ads > a", "a.ads", "a[href*='down']"])
         .and_then(|el| el.value().attr("href"))
-        .ok_or_else(|| -> Box<dyn std::error::Error + Send + Sync> {
-            "wnacg: 無法找到下載連結".into()
-        })?;
+        .ok_or_else(|| DownloadError::Other("wnacg: 無法找到下載連結".to_string()))?;
 
     let href = if raw.starts_with("http") {
         raw.to_string()
@@ -98,7 +96,7 @@ pub async fn get_file_url(
 async fn probe_file_size(
     client: &reqwest::Client,
     file_url: &str,
-) -> Result<i64, Box<dyn std::error::Error + Send + Sync>> {
+) -> Result<i64, DownloadError> {
     let res = client
         .get(file_url)
         .header(reqwest::header::RANGE, "bytes=0-0")
@@ -107,7 +105,7 @@ async fn probe_file_size(
     let status = res.status();
 
     if matches!(status, reqwest::StatusCode::NOT_FOUND | reqwest::StatusCode::GONE) {
-        return Err("NOT_FOUND".into());
+        return Err(DownloadError::NotFound);
     }
 
     if status == reqwest::StatusCode::PARTIAL_CONTENT {
@@ -127,13 +125,13 @@ async fn probe_file_size(
         return Ok(res.content_length().map(|l| l as i64).unwrap_or(-1));
     }
 
-    Err(format!("探測失敗，狀態碼: {}", status).into())
+    Err(DownloadError::Other(format!("探測失敗，狀態碼: {}", status)))
 }
 
 pub async fn fetch_payload_details(
     app_handle: &AppHandle,
     url: String,
-) -> Result<ClipboardPayload, Box<dyn std::error::Error + Send + Sync>> {
+) -> Result<ClipboardPayload, DownloadError> {
     tracing::info!("fetch_payload_details: {}", url);
 
     // 取 state 中的 client 執行 reqwest get 請求
@@ -142,10 +140,10 @@ pub async fn fetch_payload_details(
     let res = client.get(&url).send().await?;
 
     if matches!(res.status(), reqwest::StatusCode::NOT_FOUND | reqwest::StatusCode::GONE) {
-        return Err("NOT_FOUND".into());
+        return Err(DownloadError::NotFound);
     }
     if !res.status().is_success() {
-        return Err(format!("網絡請求失敗，狀態碼: {}", res.status()).into());
+        return Err(DownloadError::Other(format!("網絡請求失敗，狀態碼: {}", res.status())));
     }
 
     let html_content = res.text().await?;
@@ -169,9 +167,7 @@ pub async fn fetch_payload_details(
 
         let download_page_href_raw = select_first(&document, &["#ads > a", "a.ads", "a[href*='down']"])
             .and_then(|el| el.value().attr("href"))
-            .ok_or_else(|| -> Box<dyn std::error::Error + Send + Sync> {
-                "wnacg: 無法找到下載頁面連結".into()
-            })?;
+            .ok_or_else(|| DownloadError::Other("wnacg: 無法找到下載頁面連結".to_string()))?;
 
         let download_page_href = if download_page_href_raw.starts_with("http") {
             download_page_href_raw.to_string()
@@ -197,7 +193,7 @@ pub async fn fetch_payload_details(
     } else {
         match probe_file_size(client, &file_url).await {
             Ok(size) => file_size = size,
-            Err(e) if e.to_string() == "NOT_FOUND" => {
+            Err(DownloadError::NotFound) => {
                 // 預檢就確定 ZIP 連結已失效，直接標 not_found
                 tracing::warn!("fetch_payload_details: ZIP 連結預檢 404/410: {}", file_url);
                 db_status = "not_found".to_string();
@@ -234,26 +230,26 @@ pub async fn download(
     save_path: PathBuf,
     cancelled: Arc<AtomicBool>,
     bandwidth_limit_bps: Arc<AtomicU64>, // 0 = 無限制
-) -> Result<(), String> {
-    let resp = client
-        .get(&file_url)
-        .send()
-        .await
-        .map_err(|e| e.to_string())?;
+) -> Result<(), DownloadError> {
+    let resp = client.get(&file_url).send().await?;
 
     if matches!(resp.status(), reqwest::StatusCode::NOT_FOUND | reqwest::StatusCode::GONE) {
-        return Err("NOT_FOUND".to_string());
+        return Err(DownloadError::NotFound);
     }
     if !resp.status().is_success() {
-        return Err(format!("下載失敗 status: {}, Url: {}", resp.status(), file_url));
+        return Err(DownloadError::Other(format!(
+            "下載失敗 status: {}, Url: {}",
+            resp.status(),
+            file_url
+        )));
     }
 
     let total_size = resp.content_length().unwrap_or(0);
 
     // 串流寫檔包進 async block：任何失敗（含取消）統一在外層刪除殘檔，
     // 避免半截 .zip 留在下載目錄被 monitor 的存在檢查誤判
-    let result: Result<(), String> = async {
-        let mut file = File::create(&save_path).map_err(|e| e.to_string())?;
+    let result: Result<(), DownloadError> = async {
+        let mut file = File::create(&save_path)?;
         let mut downloaded: u64 = 0;
         let mut stream = resp.bytes_stream();
         let mut manager = DownloadManager::new();
@@ -267,11 +263,11 @@ pub async fn download(
 
         while let Some(chunk) = stream.next().await {
             if cancelled.load(Ordering::Relaxed) {
-                return Err("下載已取消".to_string());
+                return Err(DownloadError::Cancelled);
             }
 
-            let chunk = chunk.map_err(|e| e.to_string())?;
-            file.write_all(&chunk).map_err(|e| e.to_string())?;
+            let chunk = chunk?;
+            file.write_all(&chunk)?;
             downloaded += chunk.len() as u64;
 
             let current_limit = bandwidth_limit_bps.load(Ordering::Relaxed);
@@ -293,7 +289,7 @@ pub async fn download(
                     let step = std::time::Duration::from_millis(250);
                     while remaining > std::time::Duration::ZERO {
                         if cancelled.load(Ordering::Relaxed) {
-                            return Err("下載已取消".to_string());
+                            return Err(DownloadError::Cancelled);
                         }
                         let d = remaining.min(step);
                         tokio::time::sleep(d).await;

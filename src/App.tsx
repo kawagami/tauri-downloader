@@ -89,6 +89,7 @@ function App() {
           onRemoveTask={removeTask}
           onDownload={handleDownload}
           onReorder={reorderTasks}
+          isBatchDownloading={isBatchDownloading}
         />
       </main>
     </div>
