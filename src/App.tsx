@@ -9,11 +9,13 @@ import { useClipboardMonitor } from './hooks/useClipboardMonitor';
 import { useUrlDrop } from './hooks/useUrlDrop';
 import { useDownloadTasks } from './hooks/useDownloadTasks';
 import { useTorrentStats } from './hooks/useTorrentStats';
+import { useHttpStats } from './hooks/useHttpStats';
 import { Toolbar } from './components/Toolbar';
 import { TaskListView } from './components/TaskListView';
 import { BtView } from './components/bt/BtView';
+import { HttpView } from './components/http/HttpView';
 
-type Tab = 'web' | 'bt';
+type Tab = 'web' | 'bt' | 'http';
 
 function App() {
   const { tasks, addTask, removeTask, removeAllTasks, volume, setVolume, playDing } = useTaskManager();
@@ -30,8 +32,9 @@ function App() {
     reorderTasks,
   } = useDownloadTasks(tasks, removeTask);
 
-  // BT stats 訂閱掛 App 層，切分頁不中斷;剪貼簿 magnet 加入時播 ding
+  // BT / 直鏈 stats 訂閱掛 App 層，切分頁不中斷;剪貼簿 magnet 加入時播 ding
   const { stats: btStats, toasts: btToasts } = useTorrentStats(playDing);
+  const { stats: httpStats, toasts: httpToasts } = useHttpStats();
 
   const [tab, setTab] = useState<Tab>(() =>
     (localStorage.getItem("activeTab") as Tab) || "web"
@@ -44,6 +47,8 @@ function App() {
   const btActiveCount =
     (btStats?.torrents.filter(t => !t.finished).length ?? 0) +
     (btStats?.pending.length ?? 0);
+  const httpActiveCount =
+    httpStats?.tasks.filter(t => t.state !== "finished").length ?? 0;
 
   const [bandwidthKbps, setBandwidthKbps] = useState<number>(() =>
     Number(localStorage.getItem("bandwidthKbps") || "0")
@@ -98,6 +103,14 @@ function App() {
           磁力下載
           {btActiveCount > 0 && <span className="tab-badge">{btActiveCount}</span>}
         </button>
+        <button
+          type="button"
+          className={`tab-btn ${tab === "http" ? "active" : ""}`}
+          onClick={() => switchTab("http")}
+        >
+          直鏈下載
+          {httpActiveCount > 0 && <span className="tab-badge">{httpActiveCount}</span>}
+        </button>
         <div className="tab-bar-controls">
           <div className="checkbox-group">
             <input
@@ -150,11 +163,13 @@ function App() {
             />
           </main>
         </>
-      ) : (
+      ) : tab === "bt" ? (
         <BtView stats={btStats} />
+      ) : (
+        <HttpView stats={httpStats} />
       )}
       <div className="toast-container">
-        {btToasts.map(t => (
+        {[...btToasts, ...httpToasts].map(t => (
           <div key={t.key} className="toast">
             {t.text}
           </div>
