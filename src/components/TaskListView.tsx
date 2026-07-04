@@ -18,12 +18,7 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import { DownloadableTask } from "../types";
 import { useColumnResize } from "../hooks/useColumnResize";
-
-const formatSpeed = (bps: number) => {
-    if (bps < 1024) return `${bps.toFixed(0)} B/s`;
-    if (bps < 1024 * 1024) return `${(bps / 1024).toFixed(1)} KB/s`;
-    return `${(bps / (1024 * 1024)).toFixed(1)} MB/s`;
-};
+import { formatBytes, formatSpeed } from "../lib/format";
 
 const formatTime = (secs: number) => {
     if (!isFinite(secs) || secs <= 0) return "計算中";
@@ -31,13 +26,8 @@ const formatTime = (secs: number) => {
     return `${Math.floor(secs / 60)}m ${Math.ceil(secs % 60)}s`;
 };
 
-const formatBytes = (bytes: number) => {
-    if (bytes < 0) return "未知";
-    if (bytes < 1024) return `${bytes} B`;
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-    if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-    return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
-};
+// file_size 為 -1 表示後端探測不到大小
+const formatSize = (bytes: number) => (bytes < 0 ? "未知" : formatBytes(bytes));
 
 const COL_NAMES = ["標題", "預覽圖", "新增時間", "大小", "進度", "操作"];
 const DEFAULT_WIDTHS = [300, 80, 140, 90, 120, 130];
@@ -93,7 +83,7 @@ const SortableRow: React.FC<SortableRowProps> = ({ task, onRemoveTask, onDownloa
                     ? new Date(task.created_at * 1000).toLocaleString()
                     : "-"}
             </td>
-            <td className="meta-text">{formatBytes(task.file_size ?? -1)}</td>
+            <td className="meta-text">{formatSize(task.file_size ?? -1)}</td>
             <td>
                 {task.status === "downloading" ? (
                     <>

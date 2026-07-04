@@ -18,7 +18,7 @@ type Tab = 'web' | 'bt';
 function App() {
   const { tasks, addTask, removeTask, removeAllTasks, volume, setVolume, playDing } = useTaskManager();
   const { monitorClipboard, setMonitorClipboard } = useClipboardMonitor(addTask, tasks);
-  const { isDragging, dropError, onDragEnter, onDragOver, onDragLeave, onDrop } = useUrlDrop(addTask);
+  const { isDragging, dropError, onDragEnter, onDragOver, onDragLeave, onDrop } = useUrlDrop(addTask, playDing);
   const {
     tasks: downloadTasks,
     handleDownload,
@@ -98,12 +98,34 @@ function App() {
           磁力下載
           {btActiveCount > 0 && <span className="tab-badge">{btActiveCount}</span>}
         </button>
+        <div className="tab-bar-controls">
+          <div className="checkbox-group">
+            <input
+              type="checkbox"
+              id="monitorClipboard"
+              checked={monitorClipboard}
+              onChange={handleMonitorChange}
+            />
+            <label htmlFor="monitorClipboard">監控剪貼簿</label>
+          </div>
+          <div className="toolbar-field">
+            <span>通知音量</span>
+            <input
+              type="range"
+              min="0"
+              max="3"
+              step="0.05"
+              value={volume}
+              onChange={e => setVolume(Number(e.target.value))}
+              style={{ width: "80px" }}
+            />
+            <span style={{ width: "28px" }}>{Math.round(volume * 100)}%</span>
+          </div>
+        </div>
       </nav>
       {tab === "web" ? (
         <>
           <Toolbar
-            monitorClipboard={monitorClipboard}
-            onMonitorChange={handleMonitorChange}
             onRemoveAll={removeAllTasks}
             onClearDone={handleClearDone}
             onDownloadAll={handleDownloadAllSequentially}
@@ -117,8 +139,6 @@ function App() {
             hasDoneTasks={downloadTasks.some(t => t.status === "done")}
             bandwidthKbps={bandwidthKbps}
             onBandwidthChange={handleBandwidthChange}
-            dingVolume={volume}
-            onDingVolumeChange={setVolume}
           />
           <main className="main-content">
             <TaskListView

@@ -7,7 +7,7 @@ use serde_json::{json, Value};
 use tauri::{AppHandle, Manager, State};
 
 use super::settings::BtSettings;
-use super::state::{PendingAdd, TorrentState};
+use super::state::{BtEngine, PendingAdd};
 
 /// Windows 安全的資料夾名：去非法字元、尾端點/空格、保留裝置名，長度上限 120 bytes
 pub(crate) fn sanitize_folder_name(name: &str) -> String {
@@ -55,7 +55,7 @@ pub async fn add_magnet_inner(
     out_dir: Option<String>,
     paused: bool,
 ) -> Result<Value, String> {
-    let state = app.state::<TorrentState>();
+    let state = app.state::<BtEngine>().get()?;
     let magnet = magnet.trim().to_string();
     if !magnet.starts_with("magnet:") {
         return Err("無效的磁力連結".to_string());
@@ -124,14 +124,13 @@ pub async fn add_magnet_inner(
         },
     );
 
-    let app2 = app.clone();
+    let ts = state.clone();
     let handle = tauri::async_runtime::spawn(async move {
-        let state = app2.state::<TorrentState>();
-        let result = state
+        let result = ts
             .api
             .api_add_torrent(AddTorrent::from_url(&magnet), Some(opts))
             .await;
-        let mut pending = state.pending.lock().unwrap();
+        let mut pending = ts.pending.lock().unwrap();
         match result {
             // 任務已進正式清單，撤掉 placeholder
             Ok(_) => {
@@ -165,8 +164,9 @@ pub async fn add_magnet(
 
 /// 取消抓取中 / 移除加入失敗的 pending 項
 #[tauri::command]
-pub fn remove_pending(state: State<'_, TorrentState>, key: u64) -> Result<(), String> {
-    if let Some(p) = state.pending.lock().unwrap().remove(&key) {
+pub fn remove_pending(state: State<'_, BtEngine>, key: u64) -> Result<(), String> {
+    let ts = state.get()?;
+    if let Some(p) = ts.pending.lock().unwrap().remove(&key) {
         if let Some(handle) = p.handle {
             handle.abort();
         }
@@ -175,13 +175,15 @@ pub fn remove_pending(state: State<'_, TorrentState>, key: u64) -> Result<(), St
 }
 
 #[tauri::command]
-pub async fn list_torrents(state: State<'_, TorrentState>) -> Result<Value, String> {
-    serde_json::to_value(state.api.api_torrent_list()).map_err(|e| e.to_string())
+pub async fn list_torrents(state: State<'_, BtEngine>) -> Result<Value, String> {
+    let ts = state.get()?;
+    serde_json::to_value(ts.api.api_torrent_list()).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub async fn torrent_details(state: State<'_, TorrentState>, id: usize) -> Result<Value, String> {
-    let details = state
+pub async fn torrent_details(state: State<'_, BtEngine>, id: usize) -> Result<Value, String> {
+    let ts = state.get()?;
+    let details = ts
         .api
         .api_torrent_details(id.into())
         .map_err(|e| e.to_string())?;
@@ -189,8 +191,9 @@ pub async fn torrent_details(state: State<'_, TorrentState>, id: usize) -> Resul
 }
 
 #[tauri::command]
-pub async fn pause_torrent(state: State<'_, TorrentState>, id: usize) -> Result<(), String> {
+pub async fn pause_torrent(state: State<'_, BtEngine>, id: usize) -> Result<(), String> {
     state
+        .get()?
         .api
         .api_torrent_action_pause(id.into())
         .await
@@ -199,8 +202,9 @@ pub async fn pause_torrent(state: State<'_, TorrentState>, id: usize) -> Result<
 }
 
 #[tauri::command]
-pub async fn resume_torrent(state: State<'_, TorrentState>, id: usize) -> Result<(), String> {
+pub async fn resume_torrent(state: State<'_, BtEngine>, id: usize) -> Result<(), String> {
     state
+        .get()?
         .api
         .api_torrent_action_start(id.into())
         .await
@@ -210,32 +214,47 @@ pub async fn resume_torrent(state: State<'_, TorrentState>, id: usize) -> Result
 
 #[tauri::command]
 pub async fn delete_torrent(
-    state: State<'_, TorrentState>,
+    state: State<'_, BtEngine>,
     id: usize,
     delete_files: bool,
 ) -> Result<(), String> {
+    let ts = state.get()?;
     let res = if delete_files {
-        state.api.api_torrent_action_delete(id.into()).await
+        ts.api.api_torrent_action_delete(id.into()).await
     } else {
-        state.api.api_torrent_action_forget(id.into()).await
+        ts.api.api_torrent_action_forget(id.into()).await
     };
     res.map(|_| ()).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub fn get_bt_settings(state: State<'_, TorrentState>) -> Result<BtSettings, String> {
-    Ok(state.settings.lock().unwrap().clone())
+pub fn get_bt_settings(state: State<'_, BtEngine>) -> Result<BtSettings, String> {
+    let ts = state.get()?;
+    let settings = ts.settings.lock().unwrap().clone();
+    Ok(settings)
 }
 
 /// 存 BT 設定。session 層設定（port、限速）重啟 app 後生效；
 /// default_download_dir 對新任務即時生效。
 #[tauri::command]
-pub fn save_bt_settings(state: State<'_, TorrentState>, settings: BtSettings) -> Result<(), String> {
+pub fn save_bt_settings(state: State<'_, BtEngine>, settings: BtSettings) -> Result<(), String> {
+    let ts = state.get()?;
     settings
-        .save(&state.settings_path)
+        .save(&ts.settings_path)
         .map_err(|e| e.to_string())?;
-    *state.settings.lock().unwrap() = settings;
+    *ts.settings.lock().unwrap() = settings;
     Ok(())
+}
+
+#[tauri::command]
+pub fn get_bt_engine_status(state: State<'_, BtEngine>) -> Value {
+    state.status()
+}
+
+/// 引擎啟動失敗後（如 port 衝突）手動重試
+#[tauri::command]
+pub fn retry_bt_init(app: AppHandle) {
+    super::state::spawn_init(app);
 }
 
 #[cfg(test)]

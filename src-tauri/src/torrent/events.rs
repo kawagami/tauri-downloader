@@ -5,13 +5,14 @@ use librqbit::TorrentStatsState;
 use serde_json::json;
 use tauri::{AppHandle, Emitter, Manager};
 
-use super::state::TorrentState;
+use super::state::BtEngine;
 
 const MIB: f64 = 1024.0 * 1024.0;
 
 /// 每秒收集所有 torrent 統計，推一個 "torrent-stats" event。
 /// finished false → true 轉換時額外推 "torrent-finished"
 ///（首個 tick 不發，避免重啟後恢復的已完成任務誤報）。
+/// 引擎未就緒（背景 init 中/失敗）時跳過該 tick。
 pub fn spawn_stats_task(app: AppHandle) {
     tauri::async_runtime::spawn(async move {
         let mut was_finished: HashMap<usize, bool> = HashMap::new();
@@ -19,7 +20,9 @@ pub fn spawn_stats_task(app: AppHandle) {
         let mut interval = tokio::time::interval(Duration::from_secs(1));
         loop {
             interval.tick().await;
-            let state = app.state::<TorrentState>();
+            let Ok(state) = app.state::<BtEngine>().get() else {
+                continue;
+            };
             let list = state.api.api_torrent_list();
             let mut torrents = Vec::with_capacity(list.torrents.len());
 

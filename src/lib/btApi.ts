@@ -107,3 +107,18 @@ export function getBtSettings(): Promise<BtSettings> {
 export function saveBtSettings(settings: BtSettings): Promise<void> {
   return invoke("save_bt_settings", { settings });
 }
+
+// ---- 引擎狀態（背景 init，失敗可 retry） ----
+
+export interface BtEngineStatus {
+  ready: boolean;
+  error: string | null;
+}
+
+export function getBtEngineStatus(): Promise<BtEngineStatus> {
+  return invoke("get_bt_engine_status");
+}
+
+export function retryBtInit(): Promise<void> {
+  return invoke("retry_bt_init");
+}

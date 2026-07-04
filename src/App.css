@@ -503,6 +503,16 @@ button:disabled {
   text-align: center;
 }
 
+/* 全域控制項(監控剪貼簿、通知音量)— 兩個分頁都適用,放 tab bar 右側 */
+.tab-bar-controls {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding-bottom: 8px;
+  font-size: 12px;
+}
+
 /* ---------- BT 磁力下載分頁 ---------- */
 
 .bt-toolbar {

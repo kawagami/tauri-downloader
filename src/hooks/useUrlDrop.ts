@@ -3,6 +3,7 @@
 import { useState, useCallback, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { ClipboardPayload } from '../types';
+import { addMagnet } from '../lib/btApi';
 
 type AddTaskFunction = (payload: ClipboardPayload) => Promise<void>;
 
@@ -18,10 +19,11 @@ interface UseUrlDrop {
 /**
  * useUrlDrop
  * - 接收從瀏覽器拖入的連結（HTML5 DnD，需 tauri.conf.json dragDropEnabled:false）
- * - 從 dataTransfer 取 URL，呼叫 add_url_manually（複用剪貼簿同一條後端 pipeline）
- * - 回傳 payload 後直接 addTask，獨立於剪貼簿監控開關
+ * - 站台 URL → add_url_manually（複用剪貼簿同一條後端 pipeline）→ addTask
+ * - magnet 連結 → add_magnet（BT 分頁），與剪貼簿監控行為一致
+ * - 獨立於剪貼簿監控開關
  */
-export const useUrlDrop = (addTask: AddTaskFunction): UseUrlDrop => {
+export const useUrlDrop = (addTask: AddTaskFunction, onMagnetAdded?: () => void): UseUrlDrop => {
     const [isDragging, setIsDragging] = useState(false);
     const [dropError, setDropError] = useState<string | null>(null);
     // dragenter/dragleave 會在子元素間反覆觸發，用計數器避免閃爍
@@ -74,13 +76,23 @@ export const useUrlDrop = (addTask: AddTaskFunction): UseUrlDrop => {
         }
 
         try {
+            if (url.startsWith('magnet:')) {
+                const result = await addMagnet(url);
+                if (result.already_exists) {
+                    flashError('磁力任務已存在');
+                } else {
+                    onMagnetAdded?.();
+                    flashError(null);
+                }
+                return;
+            }
             const payload = await invoke<ClipboardPayload>('add_url_manually', { url });
             await addTask(payload);
             flashError(null);
         } catch (err) {
             flashError(String(err));
         }
-    }, [addTask, flashError]);
+    }, [addTask, onMagnetAdded, flashError]);
 
     return { isDragging, dropError, onDragEnter, onDragOver, onDragLeave, onDrop };
 };

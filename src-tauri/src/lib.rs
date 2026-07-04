@@ -31,12 +31,9 @@ pub fn run() {
             let state = AppState::new(db, Arc::clone(&monitor_running));
             app.manage(state);
 
-            // BT 引擎（librqbit session + 每秒 stats 推送）
-            let app_data_dir = app.path().app_data_dir()?;
-            std::fs::create_dir_all(&app_data_dir)?;
-            let torrent_state = tauri::async_runtime::block_on(torrent::state::init(app_data_dir))
-                .map_err(|e| -> Box<dyn std::error::Error> { format!("{:#}", e).into() })?;
-            app.manage(torrent_state);
+            // BT 引擎背景初始化 — 失敗（如 port 衝突）只讓 BT 分頁失效,不擋 app 啟動
+            app.manage(torrent::state::BtEngine::default());
+            torrent::state::spawn_init(app.handle().clone());
             torrent::events::spawn_stats_task(app.handle().clone());
 
             // 啟動剪貼簿監控邏輯
@@ -49,7 +46,11 @@ pub fn run() {
             match event {
                 WindowEvent::CloseRequested { .. } => {
                     // 優雅關閉 BT session：暫停 torrents 讓 persistence flush 完再退出
-                    if let Some(ts) = window.try_state::<torrent::state::TorrentState>() {
+                    // 先 clone Arc 再 block_on，不在鎖裡等待
+                    let ts = window
+                        .try_state::<torrent::state::BtEngine>()
+                        .and_then(|e| e.inner.read().unwrap().clone());
+                    if let Some(ts) = ts {
                         tauri::async_runtime::block_on(ts.session.stop());
                     }
                 }
@@ -82,6 +83,8 @@ pub fn run() {
             torrent::commands::delete_torrent,
             torrent::commands::get_bt_settings,
             torrent::commands::save_bt_settings,
+            torrent::commands::get_bt_engine_status,
+            torrent::commands::retry_bt_init,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

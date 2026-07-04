@@ -3,8 +3,6 @@
 import React from "react";
 
 interface ToolbarProps {
-    monitorClipboard: boolean;
-    onMonitorChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
     onRemoveAll: () => void;
     onClearDone: () => Promise<void>;
     onDownloadAll: () => void;
@@ -18,13 +16,9 @@ interface ToolbarProps {
     hasDoneTasks: boolean;
     bandwidthKbps: number;
     onBandwidthChange: (kbps: number) => void;
-    dingVolume: number;
-    onDingVolumeChange: (v: number) => void;
 }
 
 export const Toolbar: React.FC<ToolbarProps> = ({
-    monitorClipboard,
-    onMonitorChange,
     onRemoveAll,
     onClearDone,
     onDownloadAll,
@@ -38,21 +32,11 @@ export const Toolbar: React.FC<ToolbarProps> = ({
     hasDoneTasks,
     bandwidthKbps,
     onBandwidthChange,
-    dingVolume,
-    onDingVolumeChange,
 }) => (
     <div className="sticky-toolbar" style={{ flexDirection: "column", alignItems: "flex-start", gap: "6px" }}>
         <div style={{ display: "flex", alignItems: "center", gap: "16px", flexWrap: "wrap" }}>
-            <div className="checkbox-group">
-                <input
-                    type="checkbox"
-                    id="monitorClipboard"
-                    checked={monitorClipboard}
-                    onChange={onMonitorChange}
-                />
-                <label htmlFor="monitorClipboard">監控剪貼簿</label>
-            </div>
             <div className="toolbar-field">
+                <span>頻寬限制</span>
                 <input
                     type="number"
                     min="0"
@@ -66,19 +50,6 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                     style={{ width: "80px" }}
                 />
                 <span>KB/s</span>
-            </div>
-            <div className="toolbar-field">
-                <span>通知音量</span>
-                <input
-                    type="range"
-                    min="0"
-                    max="3"
-                    step="0.05"
-                    value={dingVolume}
-                    onChange={e => onDingVolumeChange(Number(e.target.value))}
-                    style={{ width: "80px" }}
-                />
-                <span style={{ width: "28px" }}>{Math.round(dingVolume * 100)}%</span>
             </div>
             {totalCount > 0 && (
                 <div className="toolbar-summary">
