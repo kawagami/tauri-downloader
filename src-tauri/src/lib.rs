@@ -15,6 +15,7 @@ pub mod download_core;
 pub mod http_dl;
 pub mod monitor;
 pub mod providers;
+pub mod settings;
 pub mod state;
 pub mod torrent;
 pub mod utils;
@@ -28,18 +29,31 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .setup(move |app| {
+            let app_data_dir = app.path().app_data_dir()?;
+            std::fs::create_dir_all(&app_data_dir)?;
+
+            // 統一設定：後端啟動自己 load 並套用 runtime 旗標，不靠前端補推
+            let settings_state = settings::SettingsState::load(&app_data_dir);
+            let s = settings_state.get();
+
             let db = init_db(app.handle())?;
             let state = AppState::new(db, Arc::clone(&monitor_running));
+            state
+                .bandwidth_limit_bps
+                .store(s.bandwidth_limit_kbps * 1024, Ordering::Relaxed);
+            state
+                .monitor_paused
+                .store(!s.monitor_clipboard, Ordering::Relaxed);
             app.manage(state);
+            app.manage(settings_state);
 
             // BT 引擎背景初始化 — 失敗（如 port 衝突）只讓 BT 分頁失效,不擋 app 啟動
+            // （spawn_init 讀 SettingsState.bt，須在 manage 之後）
             app.manage(torrent::state::BtEngine::default());
             torrent::state::spawn_init(app.handle().clone());
             torrent::events::spawn_stats_task(app.handle().clone());
 
             // HTTP 直鏈下載（獨立於 BT 引擎與網站下載）
-            let app_data_dir = app.path().app_data_dir()?;
-            std::fs::create_dir_all(&app_data_dir)?;
             let http_mgr = http_dl::manager::HttpManager::load(app_data_dir.join("http_tasks.json"));
             // 上次關閉時仍在跑的任務自動續傳
             http_mgr.resume_interrupted();
@@ -83,9 +97,9 @@ pub fn run() {
             commands::common::remove_task,
             commands::common::remove_all_tasks,
             commands::common::cancel_download,
-            commands::common::set_monitor_paused,
             commands::common::update_task_status,
-            commands::common::set_bandwidth_limit,
+            commands::common::get_app_settings,
+            commands::common::save_app_settings,
             commands::common::reorder_tasks,
             commands::common::add_url_manually,
             torrent::commands::add_magnet,
@@ -95,8 +109,6 @@ pub fn run() {
             torrent::commands::pause_torrent,
             torrent::commands::resume_torrent,
             torrent::commands::delete_torrent,
-            torrent::commands::get_bt_settings,
-            torrent::commands::save_bt_settings,
             torrent::commands::get_bt_engine_status,
             torrent::commands::retry_bt_init,
             http_dl::commands::add_http_download,

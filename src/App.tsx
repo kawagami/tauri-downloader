@@ -1,8 +1,9 @@
 // src/App.tsx
 
 import React, { useCallback, useEffect, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
 import "./App.css";
+
+import { getAppSettings, updateAppSettings } from './lib/settingsApi';
 
 import { useTaskManager } from './hooks/useTaskManager';
 import { useClipboardMonitor } from './hooks/useClipboardMonitor';
@@ -69,23 +70,35 @@ function App() {
   const httpActiveCount =
     httpStats?.tasks.filter(t => t.state !== "finished").length ?? 0;
 
-  const [bandwidthKbps, setBandwidthKbps] = useState<number>(() =>
-    Number(localStorage.getItem("bandwidthKbps") || "0")
-  );
+  // 頻寬限制持久化在 app_settings.json;後端啟動已自行套用,mount 只同步 UI
+  const [bandwidthKbps, setBandwidthKbps] = useState<number>(0);
+  useEffect(() => {
+    (async () => {
+      try {
+        let s = await getAppSettings();
+        // 舊版 localStorage 值一次性遷移
+        const legacy = localStorage.getItem("bandwidthKbps");
+        if (legacy !== null) {
+          localStorage.removeItem("bandwidthKbps");
+          const kbps = Number(legacy) || 0;
+          if (kbps > 0 && s.bandwidth_limit_kbps === 0) {
+            s = await updateAppSettings(cur => ({ ...cur, bandwidth_limit_kbps: kbps }));
+          }
+        }
+        setBandwidthKbps(s.bandwidth_limit_kbps);
+      } catch {}
+    })();
+  }, []);
 
   const doneCount = downloadTasks.filter(t => t.status === "done").length;
   const pendingCount = downloadTasks.filter(
     t => t.status === "idle" || t.status === "error" || t.status === "paused"
   ).length;
 
-  useEffect(() => {
-    invoke("set_bandwidth_limit", { bytesPerSec: bandwidthKbps * 1024 });
-  }, []);
-
   const handleBandwidthChange = useCallback(async (kbps: number) => {
     setBandwidthKbps(kbps);
-    localStorage.setItem("bandwidthKbps", String(kbps));
-    await invoke("set_bandwidth_limit", { bytesPerSec: kbps * 1024 });
+    // save_app_settings 會即時套用頻寬限制
+    await updateAppSettings(s => ({ ...s, bandwidth_limit_kbps: kbps }));
   }, []);
 
   const handleMonitorChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {

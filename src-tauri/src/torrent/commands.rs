@@ -6,8 +6,8 @@ use librqbit::{AddTorrent, AddTorrentOptions, Magnet};
 use serde_json::{json, Value};
 use tauri::{AppHandle, Manager, State};
 
-use super::settings::BtSettings;
 use super::state::{BtEngine, PendingAdd};
+use crate::settings::SettingsState;
 
 /// Windows 安全的資料夾名：去非法字元、尾端點/空格、保留裝置名，長度上限 120 bytes
 pub(crate) fn sanitize_folder_name(name: &str) -> String {
@@ -85,7 +85,12 @@ pub async fn add_magnet_inner(
     // 未指定目錄時用 BT 設定的預設下載目錄
     let out_dir = out_dir
         .filter(|s| !s.trim().is_empty())
-        .unwrap_or_else(|| state.settings.lock().unwrap().default_download_dir.clone());
+        .unwrap_or_else(|| {
+            app.state::<SettingsState>()
+                .get()
+                .bt
+                .default_download_dir
+        });
 
     // 每個任務放同名子資料夾：magnet dn= 名稱 sanitize，無 dn 用 infohash。
     // librqbit 對明確給的 output_folder 不再套自己的子資料夾，不會雙層。
@@ -225,25 +230,6 @@ pub async fn delete_torrent(
         ts.api.api_torrent_action_forget(id.into()).await
     };
     res.map(|_| ()).map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-pub fn get_bt_settings(state: State<'_, BtEngine>) -> Result<BtSettings, String> {
-    let ts = state.get()?;
-    let settings = ts.settings.lock().unwrap().clone();
-    Ok(settings)
-}
-
-/// 存 BT 設定。session 層設定（port、限速）重啟 app 後生效；
-/// default_download_dir 對新任務即時生效。
-#[tauri::command]
-pub fn save_bt_settings(state: State<'_, BtEngine>, settings: BtSettings) -> Result<(), String> {
-    let ts = state.get()?;
-    settings
-        .save(&ts.settings_path)
-        .map_err(|e| e.to_string())?;
-    *ts.settings.lock().unwrap() = settings;
-    Ok(())
 }
 
 #[tauri::command]

@@ -2,6 +2,7 @@
 
 use crate::db;
 use crate::providers::{ClipboardPayload, Site};
+use crate::settings::{AppSettings, SettingsState};
 use crate::state::AppState;
 
 use clipboard::{ClipboardContext, ClipboardProvider};
@@ -47,13 +48,28 @@ pub fn cancel_download(state: State<'_, AppState>) {
 }
 
 #[tauri::command]
-pub fn set_monitor_paused(state: State<'_, AppState>, paused: bool) {
-    state.monitor_paused.store(paused, Ordering::Relaxed);
+pub fn get_app_settings(settings: State<'_, SettingsState>) -> AppSettings {
+    settings.get()
 }
 
+/// 存 app 設定並即時套用 runtime 旗標（頻寬限制、監控開關）。
+/// BT port/限速仍是重啟生效（session 建立時讀取）。
 #[tauri::command]
-pub fn set_bandwidth_limit(state: State<'_, AppState>, bytes_per_sec: u64) {
-    state.bandwidth_limit_bps.store(bytes_per_sec, Ordering::Relaxed);
+pub fn save_app_settings(
+    state: State<'_, AppState>,
+    settings_state: State<'_, SettingsState>,
+    settings: AppSettings,
+) -> Result<(), String> {
+    settings_state
+        .save(settings.clone())
+        .map_err(|e| format!("儲存設定失敗: {:?}", e))?;
+    state
+        .bandwidth_limit_bps
+        .store(settings.bandwidth_limit_kbps * 1024, Ordering::Relaxed);
+    state
+        .monitor_paused
+        .store(!settings.monitor_clipboard, Ordering::Relaxed);
+    Ok(())
 }
 
 #[tauri::command]

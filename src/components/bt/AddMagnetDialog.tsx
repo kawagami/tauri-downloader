@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
-import { addMagnet, getBtSettings, saveBtSettings } from "../../lib/btApi";
+import { addMagnet } from "../../lib/btApi";
+import { updateAppSettings } from "../../lib/settingsApi";
 
 interface Props {
   defaultDir: string;
@@ -42,8 +43,10 @@ export function AddMagnetDialog({ defaultDir, onClose, onAdded, onDefaultDirSave
       // 存預設目錄失敗不擋加入
       if (saveAsDefault && outDir && outDir !== defaultDir) {
         try {
-          const s = await getBtSettings();
-          await saveBtSettings({ ...s, default_download_dir: outDir });
+          await updateAppSettings((s) => ({
+            ...s,
+            bt: { ...s.bt, default_download_dir: outDir },
+          }));
           onDefaultDirSaved(outDir);
         } catch {}
       }

@@ -63,14 +63,8 @@ export interface AddMagnetResult {
   name?: string | null;
 }
 
-export interface BtSettings {
-  default_download_dir: string;
-  listen_port: number | null;
-  upload_limit_bps: number | null;
-  download_limit_bps: number | null;
-}
-
 // ---- Command wrappers ----
+// BtSettings 契約與 get/save 已併入 settingsApi.ts（AppSettings.bt）
 
 export function addMagnet(
   magnet: string,
@@ -98,14 +92,6 @@ export function resumeTorrent(id: number): Promise<void> {
 
 export function deleteTorrent(id: number, deleteFiles: boolean): Promise<void> {
   return invoke("delete_torrent", { id, deleteFiles });
-}
-
-export function getBtSettings(): Promise<BtSettings> {
-  return invoke("get_bt_settings");
-}
-
-export function saveBtSettings(settings: BtSettings): Promise<void> {
-  return invoke("save_bt_settings", { settings });
 }
 
 // ---- 引擎狀態（背景 init，失敗可 retry） ----

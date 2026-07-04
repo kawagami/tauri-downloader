@@ -23,12 +23,11 @@ pub struct PendingAdd {
     pub handle: Option<tauri::async_runtime::JoinHandle<()>>,
 }
 
-/// BT 引擎狀態，獨立 manage，不混入主 AppState
+/// BT 引擎狀態，獨立 manage，不混入主 AppState。
+/// BT 設定在 SettingsState（settings.rs），不在這 — 引擎掛掉設定照常可用。
 pub struct TorrentState {
     pub api: Api,
     pub session: Arc<Session>,
-    pub settings: Mutex<BtSettings>,
-    pub settings_path: PathBuf,
     pub pending: Mutex<HashMap<u64, PendingAdd>>,
     pub pending_seq: AtomicU64,
 }
@@ -77,7 +76,8 @@ pub fn spawn_init(app: AppHandle) {
         let result = async {
             let dir = app.path().app_data_dir().context("無法取得 app data 目錄")?;
             std::fs::create_dir_all(&dir)?;
-            init(dir).await
+            let bt_settings = app.state::<crate::settings::SettingsState>().get().bt;
+            init(dir, bt_settings).await
         }
         .await;
 
@@ -99,10 +99,7 @@ pub fn spawn_init(app: AppHandle) {
     });
 }
 
-pub async fn init(app_data_dir: PathBuf) -> anyhow::Result<TorrentState> {
-    let settings_path = app_data_dir.join("bt_settings.json");
-    let settings = BtSettings::load(&settings_path);
-
+pub async fn init(app_data_dir: PathBuf, settings: BtSettings) -> anyhow::Result<TorrentState> {
     let session_dir = app_data_dir.join("bt-session");
     let download_dir = PathBuf::from(&settings.default_download_dir);
 
@@ -136,8 +133,6 @@ pub async fn init(app_data_dir: PathBuf) -> anyhow::Result<TorrentState> {
     Ok(TorrentState {
         api,
         session,
-        settings: Mutex::new(settings),
-        settings_path,
         pending: Mutex::new(HashMap::new()),
         pending_seq: AtomicU64::new(0),
     })

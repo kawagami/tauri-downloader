@@ -2,7 +2,8 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-/// BT 專用設定，獨立於主 app 狀態，存 app_data_dir/bt_settings.json
+/// BT 專用設定 — 現為 AppSettings 的 bt 區塊（存 app_settings.json），
+/// 舊 bt_settings.json 僅在首次啟動時遷移用（settings.rs）
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct BtSettings {
@@ -36,13 +37,5 @@ impl BtSettings {
             .ok()
             .and_then(|s| serde_json::from_str(&s).ok())
             .unwrap_or_default()
-    }
-
-    pub fn save(&self, path: &Path) -> anyhow::Result<()> {
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
-        std::fs::write(path, serde_json::to_string_pretty(self)?)?;
-        Ok(())
     }
 }

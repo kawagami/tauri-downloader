@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
-import { getBtSettings, saveBtSettings, type BtSettings } from "../../lib/btApi";
+import { getAppSettings, updateAppSettings, type BtSettings } from "../../lib/settingsApi";
 
 interface Props {
   onClose: () => void;
@@ -12,7 +12,9 @@ export function BtSettingsDialog({ onClose, onSaved }: Props) {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    getBtSettings().then(setSettings).catch((e) => setError(String(e)));
+    getAppSettings()
+      .then((s) => setSettings(s.bt))
+      .catch((e) => setError(String(e)));
   }, []);
 
   if (!settings) {
@@ -33,7 +35,7 @@ export function BtSettingsDialog({ onClose, onSaved }: Props) {
   async function save() {
     setError(null);
     try {
-      await saveBtSettings(settings!);
+      await updateAppSettings((s) => ({ ...s, bt: settings! }));
       onSaved(settings!);
       onClose();
     } catch (e) {

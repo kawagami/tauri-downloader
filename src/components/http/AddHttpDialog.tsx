@@ -1,21 +1,38 @@
 import { useEffect, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { addHttpDownload } from "../../lib/httpApi";
+import { getAppSettings, updateAppSettings } from "../../lib/settingsApi";
 
 interface Props {
   onClose: () => void;
   onAdded: (existingId: number | null) => void;
 }
 
-const DEFAULT_DIR_KEY = "httpDefaultDir";
-
 export function AddHttpDialog({ onClose, onAdded }: Props) {
   const [link, setLink] = useState("");
-  const [outDir, setOutDir] = useState(() => localStorage.getItem(DEFAULT_DIR_KEY) || "");
+  const [outDir, setOutDir] = useState("");
   const [saveAsDefault, setSaveAsDefault] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const isHttp = /^https?:\/\//i.test(link.trim());
+
+  // 預設目錄自動帶入(app_settings.json,使用者已改過就不覆蓋)
+  useEffect(() => {
+    (async () => {
+      try {
+        let s = await getAppSettings();
+        // 舊版 localStorage 值一次性遷移
+        const legacy = localStorage.getItem("httpDefaultDir");
+        if (legacy !== null) {
+          localStorage.removeItem("httpDefaultDir");
+          if (legacy && !s.http_default_dir) {
+            s = await updateAppSettings((cur) => ({ ...cur, http_default_dir: legacy }));
+          }
+        }
+        if (s.http_default_dir) setOutDir((prev) => prev || s.http_default_dir);
+      } catch {}
+    })();
+  }, []);
 
   // 剪貼簿是 http(s) 連結就自動帶入
   useEffect(() => {
@@ -38,10 +55,11 @@ export function AddHttpDialog({ onClose, onAdded }: Props) {
     setBusy(true);
     try {
       const result = await addHttpDownload(link.trim(), outDir || undefined);
-      // 勾選時記住目錄;留空 = 清除預設,回到系統下載資料夾
+      // 勾選時記住目錄;留空 = 清除預設,回到系統下載資料夾。存失敗不擋加入
       if (saveAsDefault) {
-        if (outDir.trim()) localStorage.setItem(DEFAULT_DIR_KEY, outDir.trim());
-        else localStorage.removeItem(DEFAULT_DIR_KEY);
+        try {
+          await updateAppSettings((s) => ({ ...s, http_default_dir: outDir.trim() }));
+        } catch {}
       }
       onAdded(result.already_exists ? result.id : null);
       onClose();

@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { listen, Event } from '@tauri-apps/api/event';
-import { invoke } from '@tauri-apps/api/core';
+import { getAppSettings, updateAppSettings } from '../lib/settingsApi';
 import { ClipboardPayload, Task } from '../types';
 
 type AddTaskFunction = (payload: ClipboardPayload) => Promise<void>;
@@ -23,9 +23,17 @@ export const useClipboardMonitor = (
         tasksRef.current = tasks;
     }, [tasks]);
 
+    // 開關狀態持久化在 app_settings.json;後端啟動已自行套用,這裡只同步 UI
+    useEffect(() => {
+        getAppSettings()
+            .then(s => setMonitorClipboardState(s.monitor_clipboard))
+            .catch(() => {});
+    }, []);
+
     const setMonitorClipboard = useCallback(async (enabled: boolean) => {
         setMonitorClipboardState(enabled);
-        await invoke('set_monitor_paused', { paused: !enabled });
+        // save_app_settings 會即時套用 monitor_paused
+        await updateAppSettings(s => ({ ...s, monitor_clipboard: enabled }));
     }, []);
 
     useEffect(() => {

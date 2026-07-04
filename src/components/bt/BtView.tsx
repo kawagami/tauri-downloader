@@ -5,11 +5,11 @@ import { listen } from "@tauri-apps/api/event";
 import {
   deleteTorrent,
   getBtEngineStatus,
-  getBtSettings,
   retryBtInit,
   type BtEngineStatus,
   type TorrentStatsEvent,
 } from "../../lib/btApi";
+import { getAppSettings } from "../../lib/settingsApi";
 import { formatSpeed } from "../../lib/format";
 import { TorrentRow } from "./TorrentRow";
 import { PendingRow } from "./PendingRow";
@@ -41,13 +41,12 @@ export function BtView({ stats }: Props) {
     };
   }, []);
 
-  // 引擎就緒後才拿得到設定
+  // 設定已獨立於 BT 引擎(SettingsState),不用等引擎就緒
   useEffect(() => {
-    if (!engine?.ready) return;
-    getBtSettings()
-      .then((s) => setDefaultDir(s.default_download_dir))
+    getAppSettings()
+      .then((s) => setDefaultDir(s.bt.default_download_dir))
       .catch(() => {});
-  }, [engine?.ready]);
+  }, []);
 
   useEffect(() => {
     if (!actionError) return;
