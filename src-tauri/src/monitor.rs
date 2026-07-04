@@ -45,7 +45,44 @@ pub fn start_clipboard_monitor(app_handle: AppHandle, running: Arc<AtomicBool>) 
             if let Ok(current_content) = ctx.get_contents() {
                 // 內容變化且非空時才處理
                 if !current_content.is_empty() && current_content != last_content {
-                    if let Ok(site) = Site::from_url(&current_content) {
+                    let trimmed = current_content.trim();
+                    if trimmed.starts_with("magnet:") {
+                        // magnet 連結 → 交給 BT 引擎，沿用同一節流 map（key 為 magnet 字串）
+                        let now = Instant::now();
+                        let should_add = {
+                            let mut map = recent_urls.lock().unwrap();
+                            map.retain(|_, t| now.duration_since(*t).as_secs() < URL_THROTTLE_SECS);
+                            if map.contains_key(trimmed) {
+                                false
+                            } else {
+                                map.insert(trimmed.to_string(), now);
+                                true
+                            }
+                        };
+                        if should_add {
+                            tracing::info!("Monitor: 偵測到 magnet 連結");
+                            let handle = app_handle.clone();
+                            let magnet = trimmed.to_string();
+                            tauri::async_runtime::spawn(async move {
+                                match crate::torrent::commands::add_magnet_inner(
+                                    handle.clone(),
+                                    magnet,
+                                    None,
+                                    false,
+                                )
+                                .await
+                                {
+                                    // 新加入（非重複）才通知前端播 ding
+                                    Ok(v) if v.get("pending").is_some() => {
+                                        let name = v.get("name").cloned();
+                                        let _ = handle.emit("new-magnet-added", name);
+                                    }
+                                    Ok(_) => {}
+                                    Err(e) => tracing::error!("Magnet add error: {}", e),
+                                }
+                            });
+                        }
+                    } else if let Ok(site) = Site::from_url(&current_content) {
                         if let Ok(normalized_url) = site.validate(&current_content) {
                             // 節流：30 秒內同一 URL 不重複抓取
                             let now = Instant::now();

@@ -10,6 +10,7 @@ export interface UseTaskManager {
     reloadTasks: () => Promise<void>;
     volume: number;
     setVolume: (v: number) => void;
+    playDing: () => void;
 }
 
 /**
@@ -69,6 +70,14 @@ export const useTaskManager = (): UseTaskManager => {
         tasksRef.current = tasks;
     }, [tasks]);
 
+    const playDing = useCallback(() => {
+        if (audioRef.current) {
+            if (gainNodeRef.current) gainNodeRef.current.gain.value = volumeRef.current;
+            audioRef.current.currentTime = 0;
+            audioRef.current.play().catch(() => {});
+        }
+    }, []);
+
     // 🔹 2️⃣ 新增任務函數（stable reference，不依賴 tasks）
     const addTask = useCallback(async (payload: ClipboardPayload) => {
         if (tasksRef.current.some(task => task.url === payload.url)) {
@@ -76,13 +85,8 @@ export const useTaskManager = (): UseTaskManager => {
         }
 
         setTasks(prev => [...prev, payload]);
-
-        if (audioRef.current) {
-            if (gainNodeRef.current) gainNodeRef.current.gain.value = volumeRef.current;
-            audioRef.current.currentTime = 0;
-            audioRef.current.play().catch(() => {});
-        }
-    }, []);
+        playDing();
+    }, [playDing]);
 
     const removeTask = useCallback(async (url: string) => {
         try {
@@ -110,5 +114,6 @@ export const useTaskManager = (): UseTaskManager => {
         reloadTasks,
         volume,
         setVolume,
+        playDing,
     };
 };
