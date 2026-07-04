@@ -115,7 +115,7 @@ const SortableRow: React.FC<SortableRowProps> = ({ task, onRemoveTask, onDownloa
                     <div>
                         <span className="status-badge status-not-found">找不到 🚫</span>
                         {task.errorMessage && (
-                            <div className="status-msg" style={{ color: "#b91c1c" }} title={task.errorMessage}>
+                            <div className="status-msg" style={{ color: "var(--danger-deep)" }} title={task.errorMessage}>
                                 {task.errorMessage}
                             </div>
                         )}

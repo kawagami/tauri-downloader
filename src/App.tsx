@@ -16,6 +16,15 @@ import { BtView } from './components/bt/BtView';
 import { HttpView } from './components/http/HttpView';
 
 type Tab = 'web' | 'bt' | 'http';
+type Theme = 'light' | 'dark';
+
+// 首次渲染前就決定主題,避免閃白;無記錄時跟隨系統
+function initTheme(): Theme {
+  const saved = localStorage.getItem("theme") as Theme | null;
+  const theme = saved ?? (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+  document.documentElement.dataset.theme = theme;
+  return theme;
+}
 
 function App() {
   const { tasks, addTask, removeTask, removeAllTasks, volume, setVolume, playDing } = useTaskManager();
@@ -42,6 +51,16 @@ function App() {
   const switchTab = useCallback((t: Tab) => {
     setTab(t);
     localStorage.setItem("activeTab", t);
+  }, []);
+
+  const [theme, setTheme] = useState<Theme>(initTheme);
+  const toggleTheme = useCallback(() => {
+    setTheme(prev => {
+      const next = prev === "light" ? "dark" : "light";
+      document.documentElement.dataset.theme = next;
+      localStorage.setItem("theme", next);
+      return next;
+    });
   }, []);
 
   const btActiveCount =
@@ -134,6 +153,14 @@ function App() {
             />
             <span style={{ width: "28px" }}>{Math.round(volume * 100)}%</span>
           </div>
+          <button
+            type="button"
+            className="btn-sm theme-toggle"
+            onClick={toggleTheme}
+            title={theme === "light" ? "切換深色模式" : "切換淺色模式"}
+          >
+            {theme === "light" ? "🌙" : "☀️"}
+          </button>
         </div>
       </nav>
       {tab === "web" ? (
