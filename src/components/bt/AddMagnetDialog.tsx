@@ -1,17 +1,19 @@
 import { useEffect, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
-import { addMagnet } from "../../lib/btApi";
+import { addMagnet, getBtSettings, saveBtSettings } from "../../lib/btApi";
 
 interface Props {
   defaultDir: string;
   onClose: () => void;
   onAdded: (existingId: number | null) => void;
+  onDefaultDirSaved: (dir: string) => void;
 }
 
-export function AddMagnetDialog({ defaultDir, onClose, onAdded }: Props) {
+export function AddMagnetDialog({ defaultDir, onClose, onAdded, onDefaultDirSaved }: Props) {
   const [link, setLink] = useState("");
   const [outDir, setOutDir] = useState(defaultDir);
   const [startNow, setStartNow] = useState(true);
+  const [saveAsDefault, setSaveAsDefault] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const isMagnet = link.trim().startsWith("magnet:");
@@ -37,6 +39,14 @@ export function AddMagnetDialog({ defaultDir, onClose, onAdded }: Props) {
     setBusy(true);
     try {
       const result = await addMagnet(link, outDir || undefined, !startNow);
+      // 存預設目錄失敗不擋加入
+      if (saveAsDefault && outDir && outDir !== defaultDir) {
+        try {
+          const s = await getBtSettings();
+          await saveBtSettings({ ...s, default_download_dir: outDir });
+          onDefaultDirSaved(outDir);
+        } catch {}
+      }
       onAdded(result.already_exists ? (result.id ?? null) : null);
       onClose();
     } catch (e) {
@@ -68,6 +78,14 @@ export function AddMagnetDialog({ defaultDir, onClose, onAdded }: Props) {
               瀏覽…
             </button>
           </div>
+        </label>
+        <label className="checkbox-label">
+          <input
+            type="checkbox"
+            checked={saveAsDefault}
+            onChange={(e) => setSaveAsDefault(e.target.checked)}
+          />
+          將此目錄設為預設下載目錄
         </label>
         <label className="checkbox-label">
           <input

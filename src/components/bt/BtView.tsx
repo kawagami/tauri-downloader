@@ -159,6 +159,7 @@ export function BtView({ stats }: Props) {
           defaultDir={defaultDir}
           onClose={() => setShowAdd(false)}
           onAdded={onAdded}
+          onDefaultDirSaved={setDefaultDir}
         />
       )}
       {showSettings && (
