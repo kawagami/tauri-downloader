@@ -3,9 +3,8 @@ use crate::{download_core::DownloadManager, error::DownloadError, providers::{Cl
 use futures_util::StreamExt;
 use regex::Regex;
 use scraper::{ElementRef, Html, Selector};
-use std::fs::File;
-use std::io::Write;
 use std::path::PathBuf;
+use tokio::io::AsyncWriteExt;
 use std::sync::{
     atomic::{AtomicBool, AtomicU64, Ordering},
     Arc, OnceLock,
@@ -249,7 +248,9 @@ pub async fn download(
     // 串流寫檔包進 async block：任何失敗（含取消）統一在外層刪除殘檔，
     // 避免半截 .zip 留在下載目錄被 monitor 的存在檢查誤判
     let result: Result<(), DownloadError> = async {
-        let mut file = File::create(&save_path)?;
+        // tokio::fs 非阻塞寫檔：同步 I/O 會卡住 async runtime 的 worker thread，
+        // 慢碟時拖累同 runtime 上的 BT stats / 直鏈下載 / IPC
+        let mut file = tokio::fs::File::create(&save_path).await?;
         let mut downloaded: u64 = 0;
         let mut stream = resp.bytes_stream();
         let mut manager = DownloadManager::new();
@@ -267,7 +268,7 @@ pub async fn download(
             }
 
             let chunk = chunk?;
-            file.write_all(&chunk)?;
+            file.write_all(&chunk).await?;
             downloaded += chunk.len() as u64;
 
             let current_limit = bandwidth_limit_bps.load(Ordering::Relaxed);
@@ -315,6 +316,8 @@ pub async fn download(
                 last_emit = std::time::Instant::now();
             }
         }
+
+        file.flush().await?;
 
         // 下載完成後補發最終進度（確保前端顯示 100%）
         let metrics = manager.calculate_metrics(downloaded, total_size);

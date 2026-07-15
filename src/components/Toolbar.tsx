@@ -62,7 +62,8 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                 onClick={() => {
                     if (window.confirm(`確定刪除全部 ${totalCount} 筆任務？`)) onRemoveAll();
                 }}
-                disabled={totalCount === 0}
+                // 批次下載中清掉清單會讓進行中的下載失去取消入口，先停再刪
+                disabled={totalCount === 0 || isBatchDownloading}
             >
                 全部刪除
             </button>

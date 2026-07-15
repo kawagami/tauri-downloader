@@ -63,10 +63,11 @@ pub fn start_clipboard_monitor(app_handle: AppHandle, running: Arc<AtomicBool>) 
                             tracing::info!("Monitor: 偵測到 magnet 連結");
                             let handle = app_handle.clone();
                             let magnet = trimmed.to_string();
+                            let recent_urls = Arc::clone(&recent_urls);
                             tauri::async_runtime::spawn(async move {
                                 match crate::torrent::commands::add_magnet_inner(
                                     handle.clone(),
-                                    magnet,
+                                    magnet.clone(),
                                     None,
                                     false,
                                 )
@@ -78,7 +79,13 @@ pub fn start_clipboard_monitor(app_handle: AppHandle, running: Arc<AtomicBool>) 
                                         let _ = handle.emit("new-magnet-added", name);
                                     }
                                     Ok(_) => {}
-                                    Err(e) => tracing::error!("Magnet add error: {}", e),
+                                    Err(e) => {
+                                        tracing::error!("Magnet add error: {}", e);
+                                        // 加入失敗（如引擎未就緒）移出節流名單讓使用者可立即重試，
+                                        // 並通知前端顯示 toast（與站台 URL fetch 失敗行為一致）
+                                        recent_urls.lock().unwrap().remove(&magnet);
+                                        let _ = handle.emit("magnet-add-error", e);
+                                    }
                                 }
                             });
                         }

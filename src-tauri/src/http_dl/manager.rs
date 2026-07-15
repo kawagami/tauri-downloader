@@ -65,8 +65,9 @@ impl HttpTask {
     }
 
     fn part_path(&self) -> PathBuf {
+        // 檔名摻 task id：不同 URL 同檔名的任務才不會互寫同一個 .part
         let name = self.file_name.lock().unwrap().clone();
-        self.dest_dir.join(format!("{name}.part"))
+        self.dest_dir.join(format!("{name}.{}.part", self.id))
     }
 
     fn final_path(&self) -> PathBuf {
@@ -196,7 +197,17 @@ impl HttpManager {
                     stop: Mutex::new(Arc::new(AtomicBool::new(false))),
                 })
             })
-            .collect();
+            .collect::<Vec<Arc<HttpTask>>>();
+
+        // 舊版 .part 檔名不含 task id，載入時搬到新命名，續傳進度不丟
+        for t in &tasks {
+            let name = t.file_name.lock().unwrap().clone();
+            let old = t.dest_dir.join(format!("{name}.part"));
+            let new = t.part_path();
+            if old.exists() && !new.exists() {
+                let _ = std::fs::rename(&old, &new);
+            }
+        }
 
         Arc::new(HttpManager {
             tasks: Mutex::new(tasks),
@@ -362,6 +373,19 @@ impl HttpManager {
             // 無 Range 支援的任務只能整檔重來。
             for s in task.segments.lock().unwrap().iter() {
                 s.written.store(0, Ordering::Relaxed);
+            }
+            // .part 要清空重配置:total 未知時完整性檢查不會跑,
+            // 上次殘留的尾巴資料會混進最終檔
+            let file = tokio::fs::OpenOptions::new()
+                .create(true)
+                .write(true)
+                .truncate(true)
+                .open(task.part_path())
+                .await
+                .map_err(TaskError::io)?;
+            let total = task.total_bytes.load(Ordering::Relaxed);
+            if total > 0 {
+                file.set_len(total).await.map_err(TaskError::io)?;
             }
         }
 

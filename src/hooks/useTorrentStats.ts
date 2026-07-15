@@ -38,12 +38,18 @@ export function useTorrentStats(onMagnetAdded?: () => void) {
       pushToast(`已加入磁力任務:${e.payload ?? "(無名稱 magnet)"}`);
       onMagnetAdded?.();
     });
+    // 剪貼簿 magnet 加入失敗（如 BT 引擎啟動中）
+    const unlistenAddError = listen<string>("magnet-add-error", (e) => {
+      if (cancelled) return;
+      pushToast(`磁力任務加入失敗:${e.payload}`);
+    });
 
     return () => {
       cancelled = true;
       unlistenStats.then((fn) => fn());
       unlistenFinished.then((fn) => fn());
       unlistenAdded.then((fn) => fn());
+      unlistenAddError.then((fn) => fn());
     };
   }, [onMagnetAdded]);
 
