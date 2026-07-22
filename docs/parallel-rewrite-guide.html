@@ -1,0 +1,626 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>並行改寫指南 — 判斷與實作</title>
+<script>
+  // 首次繪製前就決定主題,避免閃白;無記錄時跟隨系統(同專案 App.tsx initTheme)
+  (function () {
+    var saved = null;
+    try { saved = localStorage.getItem("docTheme"); } catch (e) {}
+    if (saved === "light" || saved === "dark") document.documentElement.dataset.theme = saved;
+  })();
+</script>
+<style>
+  /* 色票只寫一次:light-dark() 依 color-scheme 取值,手動切換只需改 color-scheme */
+  :root {
+    color-scheme: light dark;
+    --bg:            light-dark(#f6f7f9, #12151b);
+    --surface:       light-dark(#ffffff, #1a1e26);
+    --surface-2:     light-dark(#f0f2f5, #222831);
+    --border:        light-dark(#e2e5ea, #2c333f);
+    --border-strong: light-dark(#cbd1da, #3a4250);
+    --text:          light-dark(#1f2430, #e4e7ec);
+    --text-muted:    light-dark(#5b6472, #a3acbb);
+    --text-subtle:   light-dark(#868e9c, #7d8797);
+    --accent:        light-dark(#2563eb, #6ea0ff);
+    --accent-soft:   light-dark(#e8efff, #1d2a44);
+    --success:       light-dark(#15803d, #6ee7a8);
+    --success-soft:  light-dark(#e6f6ec, #16301f);
+    --danger:        light-dark(#b91c1c, #f89393);
+    --danger-soft:   light-dark(#fdeaea, #3a1f1f);
+    --warning:       light-dark(#a16207, #e8c07a);
+    --warning-soft:  light-dark(#fdf4e3, #35291a);
+    --code-bg:       light-dark(#1e232d, #0f1319);
+    --code-text:     light-dark(#e6e9ef, #dfe4ec);
+    --radius: 10px;
+    --radius-sm: 6px;
+  }
+
+  /* 手動選擇要贏過系統偏好(兩個方向都要寫) */
+  :root[data-theme="light"] { color-scheme: light; }
+  :root[data-theme="dark"]  { color-scheme: dark; }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    padding: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: "Segoe UI", "Noto Sans TC", "Microsoft JhengHei", system-ui, sans-serif;
+    font-size: 16px;
+    line-height: 1.8;
+    transition: background-color 0.15s ease, color 0.15s ease;
+  }
+
+  .theme-toggle {
+    position: fixed;
+    top: 16px;
+    right: 16px;
+    z-index: 10;
+    width: 40px;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 17px;
+    line-height: 1;
+    cursor: pointer;
+    background: var(--surface);
+    color: var(--text);
+    border: 1px solid var(--border-strong);
+    border-radius: 999px;
+    box-shadow: 0 1px 4px rgb(0 0 0 / 0.12);
+  }
+
+  .theme-toggle:hover { background: var(--surface-2); }
+
+  /* 目前是深色 → 顯示太陽(點了變淺色),反之顯示月亮 */
+  .theme-toggle .sun { display: none; }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .theme-toggle .sun { display: inline; }
+    :root:not([data-theme="light"]) .theme-toggle .moon { display: none; }
+  }
+  :root[data-theme="dark"] .theme-toggle .sun { display: inline; }
+  :root[data-theme="dark"] .theme-toggle .moon { display: none; }
+  :root[data-theme="light"] .theme-toggle .moon { display: inline; }
+
+  @media print {
+    .theme-toggle { display: none; }
+  }
+
+  .wrap {
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 40px 20px 80px;
+  }
+
+  header.page {
+    margin-bottom: 36px;
+    padding-bottom: 24px;
+    border-bottom: 2px solid var(--border-strong);
+  }
+
+  header.page h1 {
+    margin: 0 0 8px;
+    font-size: 30px;
+    line-height: 1.35;
+  }
+
+  header.page .sub {
+    color: var(--text-muted);
+    font-size: 15px;
+  }
+
+  header.page .meta {
+    margin-top: 14px;
+    font-size: 13px;
+    color: var(--text-subtle);
+  }
+
+  h2 {
+    margin: 48px 0 16px;
+    padding-top: 12px;
+    font-size: 23px;
+    border-top: 1px solid var(--border);
+  }
+
+  h3 {
+    margin: 32px 0 12px;
+    font-size: 18px;
+    color: var(--text);
+  }
+
+  h4 {
+    margin: 24px 0 8px;
+    font-size: 15px;
+    color: var(--text-muted);
+    letter-spacing: 0.02em;
+  }
+
+  p { margin: 12px 0; }
+
+  ul, ol { padding-left: 24px; }
+  li { margin: 6px 0; }
+
+  code {
+    font-family: "Cascadia Code", Consolas, "Courier New", monospace;
+    font-size: 0.88em;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 1px 5px;
+  }
+
+  pre {
+    background: var(--code-bg);
+    color: var(--code-text);
+    padding: 16px 18px;
+    border-radius: var(--radius-sm);
+    overflow-x: auto;
+    font-size: 13.5px;
+    line-height: 1.65;
+    margin: 16px 0;
+  }
+
+  pre code {
+    background: none;
+    border: none;
+    padding: 0;
+    font-size: inherit;
+    color: inherit;
+  }
+
+  pre .c { color: #7f8a9e; }          /* 註解 */
+  pre .k { color: #c08bff; }          /* 關鍵字 */
+  pre .s { color: #9ae59a; }          /* 字串 */
+  pre .f { color: #7fb3ff; }          /* 函式/型別 */
+  pre .hl { color: #ffd479; }         /* 重點 */
+
+  .table-scroll {
+    overflow-x: auto;
+    margin: 18px 0;
+  }
+
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    min-width: 520px;
+    font-size: 14.5px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+  }
+
+  th, td {
+    padding: 9px 12px;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+
+  th {
+    background: var(--surface-2);
+    font-weight: 600;
+    white-space: nowrap;
+  }
+
+  tbody tr:last-child td { border-bottom: none; }
+
+  .callout {
+    margin: 20px 0;
+    padding: 14px 16px;
+    border-left: 4px solid var(--accent);
+    background: var(--accent-soft);
+    border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  }
+
+  .callout.warn {
+    border-left-color: var(--warning);
+    background: var(--warning-soft);
+  }
+
+  .callout.danger {
+    border-left-color: var(--danger);
+    background: var(--danger-soft);
+  }
+
+  .callout.good {
+    border-left-color: var(--success);
+    background: var(--success-soft);
+  }
+
+  .callout .label {
+    display: block;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    margin-bottom: 4px;
+    color: var(--text-muted);
+  }
+
+  .callout p:first-of-type { margin-top: 0; }
+  .callout p:last-child { margin-bottom: 0; }
+
+  .metrics {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 12px;
+    margin: 20px 0;
+  }
+
+  .metric {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 12px 14px;
+  }
+
+  .metric .k {
+    font-size: 12.5px;
+    color: var(--text-subtle);
+    display: block;
+  }
+
+  .metric .v {
+    font-size: 21px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .metric .v .arrow { color: var(--text-subtle); font-weight: 400; }
+  .metric .v .after { color: var(--success); }
+
+  .checklist {
+    list-style: none;
+    padding-left: 0;
+  }
+
+  .checklist li {
+    padding-left: 26px;
+    position: relative;
+  }
+
+  .checklist li::before {
+    content: "☐";
+    position: absolute;
+    left: 4px;
+    color: var(--text-subtle);
+  }
+
+  .toc {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px 20px;
+    margin-bottom: 8px;
+  }
+
+  .toc strong { font-size: 14px; color: var(--text-muted); }
+  .toc ol { margin: 8px 0 0; padding-left: 22px; }
+  .toc li { margin: 3px 0; }
+
+  a { color: var(--accent); }
+
+  .fn {
+    font-size: 14px;
+    color: var(--text-muted);
+  }
+
+  footer.page {
+    margin-top: 56px;
+    padding-top: 20px;
+    border-top: 1px solid var(--border);
+    font-size: 13.5px;
+    color: var(--text-subtle);
+  }
+</style>
+</head>
+<body>
+<button type="button" class="theme-toggle" id="themeToggle" title="切換深色/淺色模式" aria-label="切換深色/淺色模式">
+  <span class="sun">☀️</span><span class="moon">🌙</span>
+</button>
+
+<div class="wrap">
+
+<header class="page">
+  <h1>並行改寫指南 — 判斷與實作</h1>
+  <div class="sub">以 tauri-downloader「工作需求遊戲設定」分頁（<code>src-tauri/src/jin/</code>）的實際改寫為案例</div>
+  <div class="meta">2026-07-22 · 對象：WSL UNC 路徑上的 70 個 <code>code.*.php</code> / 371 個目錄</div>
+</header>
+
+<div class="toc">
+  <strong>目錄</strong>
+  <ol>
+    <li><a href="#judge">判斷：先量，別猜</a></li>
+    <li><a href="#measure">量測手法</a></li>
+    <li><a href="#patterns">改寫：三種骨架</a></li>
+    <li><a href="#async">接回 async 世界</a></li>
+    <li><a href="#after">並行後要跟著改的東西</a></li>
+    <li><a href="#dont">什麼時候不該並行</a></li>
+  </ol>
+</div>
+
+<h2 id="judge">1. 判斷：先量，別猜</h2>
+
+<p>三個問題，順序不能反。</p>
+
+<h3>Q1 瓶頸是哪一種？</h3>
+
+<div class="table-scroll">
+<table>
+  <thead>
+    <tr><th>類型</th><th>特徵</th><th>並行效果</th><th>執行緒數</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>延遲綁定</strong><br><span class="fn">latency-bound</span></td>
+      <td>每筆等外部回應，CPU 閒著</td>
+      <td>大勝，常 5–10x</td>
+      <td>遠超核心數（8–64）</td>
+    </tr>
+    <tr>
+      <td><strong>頻寬綁定</strong><br><span class="fn">throughput-bound</span></td>
+      <td>傳輸量已打滿管線</td>
+      <td>幾乎 0，可能更慢</td>
+      <td>無意義</td>
+    </tr>
+    <tr>
+      <td><strong>CPU 綁定</strong></td>
+      <td>核心跑滿</td>
+      <td>線性到核心數</td>
+      <td>= 核心數</td>
+    </tr>
+    <tr>
+      <td><strong>鎖／序列點綁定</strong></td>
+      <td>大家排隊等同一個資源</td>
+      <td>0，先拆鎖</td>
+      <td>—</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<p>本案怎麼判的：70 檔讀取 1.6s，總資料量只有 <strong>1.1 MB</strong> → 換算 0.7 MB/s。任何硬體都遠不止這速度，<strong>不是頻寬</strong>。除以檔數 = 每檔 23ms；而平均 16 KB 的檔案不可能吃掉 23ms CPU → <strong>是延遲</strong>（WSL 9P 協定每次 round trip 的固定成本）。</p>
+
+<div class="callout">
+  <span class="label">關鍵算式</span>
+  <p><code>總時間 ÷ 筆數 = 每筆延遲</code>　<code>總資料 ÷ 總時間 = 實際頻寬</code></p>
+  <p>兩個數字一比，瓶頸類型就出來了。憑感覺選並行度是賭博。</p>
+</div>
+
+<h3>Q2 工作彼此獨立嗎？</h3>
+
+<p>任一條不過，就先改設計再談並行：</p>
+
+<ul class="checklist">
+  <li><strong>碰不同資源？</strong>70 個檔案各寫各的 ✔。若是「70 筆都 append 到同一個 log 檔」✘</li>
+  <li><strong>共享可變狀態？</strong>只有計數器 → atomic 可解 ✔。若要共讀共寫一個 HashMap → 要鎖，鎖一多就退化成序列</li>
+  <li><strong>順序是語意的一部分嗎？</strong>本案只要求輸出順序穩定（顯示用），不要求執行順序 → 可保序 ✔。若「後面的計算依賴前面的結果」✘</li>
+  <li><strong>副作用可重入？</strong>覆寫檔案冪等 ✔</li>
+  <li><strong>外部有配額嗎？</strong>WSL 沒限；換成 API 就要看 rate limit、DB 連線池上限</li>
+</ul>
+
+<div class="callout danger">
+  <span class="label">本專案反例</span>
+  <p><code>AppState.download_cancelled</code> 是<strong>單一全域 AtomicBool</strong>（CLAUDE.md 已列為已知問題）。多個下載並行時，一個取消會誤殺全部 —— 這就是「共享可變狀態」擋住並行的典型。要並行得先改成 per-task 旗標。</p>
+</div>
+
+<h3>Q3 單位工作夠大嗎？</h3>
+
+<p>執行緒建立約 50–100µs。單筆工作 23ms → overhead 佔 0.4%，划算。若單筆只要 5µs（純記憶體運算），並行反而虧。</p>
+
+<h2 id="measure">2. 量測手法</h2>
+
+<p>本案實際跑的四步，可直接套用到別的地方：</p>
+
+<pre><code><span class="c">// 1. 分段計時,先找出時間花在哪一段</span>
+<span class="k">let</span> t = std::time::Instant::<span class="f">now</span>();
+<span class="k">let</span> files = <span class="f">collect_files</span>(&amp;roots)?;
+<span class="f">println!</span>(<span class="s">"collect: {} files in {:?}"</span>, files.<span class="f">len</span>(), t.<span class="f">elapsed</span>());</code></pre>
+
+<p>量完發現：<code>collect_files</code> 1766ms、讀檔 1596ms —— <strong>兩段都要打，只打一段等於白做</strong>（Amdahl 定律：只優化佔 50% 的部分，整體最多快 2x）。</p>
+
+<div class="table-scroll">
+<table>
+  <thead><tr><th>步驟</th><th>結果</th></tr></thead>
+  <tbody>
+    <tr><td>2. 序列基準線</td><td>1596ms</td></tr>
+    <tr><td>3. 並行版（8 條）</td><td>280ms</td></tr>
+    <tr><td>4. 掃並行度找拐點</td><td>4 → 546ms　<strong>8 → 345ms</strong>　16 → 363ms</td></tr>
+  </tbody>
+</table>
+</div>
+
+<div class="callout warn">
+  <span class="label">拐點的意義</span>
+  <p>16 條沒有更快，代表<strong>已經打到別的瓶頸</strong>（連線數、伺服器端處理能力）。再加只是浪費資源、增加對方負擔。找到拐點就停。</p>
+</div>
+
+<p class="fn">量測程式寫成 <code>#[ignore]</code> 測試，量完就刪 —— 它依賴特定環境（真實 WSL 路徑），留在 repo 會變成別人的 CI 紅燈。</p>
+
+<h4>本案最終成果</h4>
+
+<div class="metrics">
+  <div class="metric">
+    <span class="k">目錄走訪 collect_files</span>
+    <span class="v">1766ms <span class="arrow">→</span> <span class="after">135ms</span></span>
+  </div>
+  <div class="metric">
+    <span class="k">讀取 70 檔</span>
+    <span class="v">1596ms <span class="arrow">→</span> <span class="after">280ms</span></span>
+  </div>
+  <div class="metric">
+    <span class="k">預覽總計</span>
+    <span class="v">3.2s <span class="arrow">→</span> <span class="after">0.4s</span></span>
+  </div>
+</div>
+
+<h2 id="patterns">3. 改寫：三種骨架</h2>
+
+<h3>型態 A：固定清單的 map</h3>
+
+<p class="fn">本案的讀檔／寫檔。需求：N 筆已知工作、要保序、各筆耗時不均。</p>
+
+<pre><code><span class="k">fn</span> <span class="f">par_map</span>&lt;T, R, F&gt;(items: &amp;[T], f: F) -&gt; <span class="f">Vec</span>&lt;R&gt;
+<span class="k">where</span> T: <span class="f">Sync</span>, R: <span class="f">Send</span>, F: <span class="f">Fn</span>(<span class="f">usize</span>, &amp;T) -&gt; R + <span class="f">Sync</span>,
+{
+    <span class="k">let</span> slots: <span class="f">Vec</span>&lt;<span class="f">Mutex</span>&lt;<span class="f">Option</span>&lt;R&gt;&gt;&gt; = items.<span class="f">iter</span>().<span class="f">map</span>(|_| <span class="f">Mutex::new</span>(<span class="k">None</span>)).<span class="f">collect</span>();
+    <span class="k">let</span> next = <span class="f">AtomicUsize::new</span>(0);            <span class="c">// 工作分派游標</span>
+    <span class="k">let</span> threads = IO_THREADS.<span class="f">min</span>(items.<span class="f">len</span>()); <span class="c">// 別開比工作還多的執行緒</span>
+
+    std::thread::<span class="f">scope</span>(|s| {                   <span class="c">// scope = 可借用外部資料,不用 'static</span>
+        <span class="k">for</span> _ <span class="k">in</span> 0..threads {
+            s.<span class="f">spawn</span>(|| <span class="k">loop</span> {
+                <span class="k">let</span> i = next.<span class="f">fetch_add</span>(1, Ordering::Relaxed);   <span class="c">// 搶號碼牌</span>
+                <span class="k">if</span> i &gt;= items.<span class="f">len</span>() { <span class="k">break</span>; }
+                *slots[i].<span class="f">lock</span>().<span class="f">unwrap</span>() = <span class="k">Some</span>(<span class="f">f</span>(i, &amp;items[i])); <span class="c">// 寫回自己的格子</span>
+            });
+        }
+    });                                        <span class="c">// scope 結束 = 全部 join 完</span>
+
+    slots.<span class="f">into_iter</span>().<span class="f">filter_map</span>(|m| m.<span class="f">into_inner</span>().<span class="f">unwrap</span>()).<span class="f">collect</span>()
+}</code></pre>
+
+<p>三個設計點：</p>
+
+<ol>
+  <li><strong>atomic 游標而非預先切塊。</strong>切塊（thread 0 拿 0–8、thread 1 拿 9–17…）遇到耗時不均會有人早早閒著。搶號碼牌是最簡單的 work stealing。</li>
+  <li><strong>slot 寫回保序。</strong>輸出順序 = 輸入順序，結果跟序列版完全一樣 → 呼叫端不用改、測試可逐項比對。若丟進共用 <code>Vec</code> push，順序會隨機，UI 每次刷新排序都跳。</li>
+  <li><strong><code>thread::scope</code></strong>（Rust 1.63+）。舊寫法 <code>thread::spawn</code> 要求 <code>'static</code>，得把資料 <code>Arc</code> 包起來；scope 保證執行緒在借用結束前 join 完，可以直接借 <code>&amp;items</code>。</li>
+</ol>
+
+<h3>型態 B：工作量未知的樹</h3>
+
+<p class="fn">本案的目錄走訪。需求：一開始只有 2 個根目錄，走著走著長出 371 個，無法預先分派。</p>
+
+<pre><code><span class="k">let</span> queue = <span class="f">Mutex::new</span>(start);        <span class="c">// 待處理目錄</span>
+<span class="k">let</span> active = <span class="f">AtomicUsize::new</span>(0);     <span class="c">// 正在處理中的數量 ← 關鍵</span>
+<span class="k">let</span> out = <span class="f">Mutex::new</span>(<span class="f">Vec::new</span>());
+
+std::thread::<span class="f">scope</span>(|s| {
+    <span class="k">for</span> _ <span class="k">in</span> 0..threads {
+        s.<span class="f">spawn</span>(|| <span class="k">loop</span> {
+            <span class="k">let</span> dir = queue.<span class="f">lock</span>().<span class="f">unwrap</span>().<span class="f">pop</span>();
+            <span class="k">let</span> <span class="k">Some</span>(dir) = dir <span class="k">else</span> {
+                <span class="c">// 佇列空 ≠ 做完!別人手上那筆可能還會吐出新子目錄</span>
+                <span class="k">if</span> active.<span class="f">load</span>(Ordering::SeqCst) == 0 { <span class="k">break</span>; }
+                std::thread::<span class="f">yield_now</span>();
+                <span class="k">continue</span>;
+            };
+            active.<span class="f">fetch_add</span>(1, Ordering::SeqCst);
+            <span class="c">// ... read_dir,子目錄 push 回 queue,檔案 push 到 out</span>
+            active.<span class="f">fetch_sub</span>(1, Ordering::SeqCst);
+        });
+    }
+});</code></pre>
+
+<div class="callout danger">
+  <span class="label">最容易寫錯的地方</span>
+  <p><strong>終止條件</strong>。只看「佇列空了就結束」會提早收工：A 執行緒正在讀某目錄、還沒把子目錄放回佇列，此時 B 看到空佇列就跑掉 → 漏檔，而且是隨機漏，測試不一定抓得到。必須 <code>queue.is_empty() &amp;&amp; active == 0</code> 兩個條件同時成立。</p>
+  <p><code>active.fetch_add</code> <strong>必須在 pop 之後、放開判斷之前</strong>，順序錯了一樣有窗口。</p>
+</div>
+
+<p>這裡用 <code>SeqCst</code> 而非 <code>Relaxed</code>：終止判斷牽涉兩個變數（queue 狀態、active 值）的相對順序，需要強保證；純計數（進度回報）才可以用 <code>Relaxed</code>。</p>
+
+<div class="callout good">
+  <span class="label">順手撿到的免費加速</span>
+  <p><code>entry.file_type()</code> 取代 <code>path.is_dir()</code>。後者每個項目多一次 stat round trip；前者用 <code>read_dir</code> 已經帶回來的資訊。<strong>這一項的貢獻不輸並行本身</strong>。</p>
+  <p>教訓：並行前先看看有沒有「根本不必做的 IO」，那是零風險的加速。</p>
+</div>
+
+<h3>型態 C：async IO</h3>
+
+<p class="fn">本專案 http_dl 用的。程式已在 async runtime、工作是網路 IO 時，不要開執行緒。</p>
+
+<pre><code><span class="k">use</span> futures_util::stream::{<span class="k">self</span>, StreamExt};
+
+<span class="k">let</span> results = stream::<span class="f">iter</span>(urls)
+    .<span class="f">map</span>(|u| <span class="k">async move</span> { <span class="f">fetch</span>(u).<span class="k">await</span> })
+    .<span class="f">buffer_unordered</span>(8)   <span class="c">// 同時最多 8 個 in-flight</span>
+    .<span class="f">collect</span>::&lt;<span class="f">Vec</span>&lt;_&gt;&gt;().<span class="k">await</span>;</code></pre>
+
+<p>差別：執行緒是 OS 資源（每條約 1 MB stack），async task 是使用者態的、開幾千個沒關係。但<strong>檔案 IO 在 Windows/Linux 上 tokio 其實也是丟到 blocking pool</strong>，所以本案用 <code>thread::scope</code> 沒有比較差，還少一層抽象。</p>
+
+<div class="table-scroll">
+<table>
+  <thead><tr><th>工作性質</th><th>選擇</th></tr></thead>
+  <tbody>
+    <tr><td>網路 / socket</td><td>async（<code>buffer_unordered</code>、<code>join_all</code>）</td></tr>
+    <tr><td>本地或網路檔案系統</td><td>執行緒池（<code>thread::scope</code>）</td></tr>
+    <tr><td>純 CPU</td><td>rayon 或執行緒數 = 核心數</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h2 id="async">4. 接回 async 世界</h2>
+
+<p>Tauri command 是 async。CPU／blocking 工作直接寫在裡面會卡住 runtime 的 worker：</p>
+
+<pre><code><span class="k">let</span> worker_app = app.<span class="f">clone</span>();
+<span class="k">let</span> result = tauri::async_runtime::<span class="f">spawn_blocking</span>(<span class="k">move</span> || {
+    <span class="f">plan_files</span>(&amp;worker_app, &amp;roots, &amp;hall, &amp;codes, &amp;envs)
+}).<span class="k">await</span>.<span class="f">map_err</span>(|e| e.<span class="f">to_string</span>())?;
+
+<span class="f">emit_progress</span>(&amp;app, <span class="s">"done"</span>, 0, 0, <span class="s">""</span>);   <span class="c">// clone 一份留給外面收尾</span>
+result</code></pre>
+
+<p><code>spawn_blocking</code> 的 closure 要 <code>'static</code> → 所以先 <code>clone</code> 再 <code>move</code>。留一份在外面，是為了<strong>不論 Ok/Err 都保證發出 done 事件</strong>，前端的進度條才一定收得掉。</p>
+
+<h2 id="after">5. 並行後要跟著改的東西</h2>
+
+<p>容易漏掉的三處：</p>
+
+<h3>① 進度語意</h3>
+<p>序列時「第 12 個檔：xxx.php」是準的；並行下同時有 8 個在跑，「當前檔名」只是抽樣。所以要改成 atomic 累加的<strong>完成數</strong>才可信，檔名只當視覺回饋。</p>
+<p class="fn">這點值得寫進註解 —— 不然下一個人會以為是 bug。</p>
+
+<h3>② 錯誤語意</h3>
+<p>序列版可以「一錯就停」；並行版當你發現錯誤時，其他 7 條已經做完了。本案的選擇：</p>
+<ul>
+  <li><strong>per-item error</strong>（讀檔／寫檔）—— 每筆自己帶錯誤訊息，不中斷別人</li>
+  <li><strong>記第一個錯誤最後回報</strong>（目錄走訪）</li>
+</ul>
+<p>要真正的 fail-fast，就得額外做取消旗標。</p>
+
+<h3>③ 測試</h3>
+<p>並行 bug 是機率性的，一般測試不保證抓到。本案加了 <code>parallel_walk_finds_nested_files</code>：建巢狀暫存目錄，斷言<strong>撈齊且排序後與預期完全一致</strong>。</p>
+<p>這也是型態 A 選擇保序輸出的附加價值 —— <strong>可以直接跟序列版逐項比對</strong>。</p>
+
+<h2 id="dont">6. 什麼時候不該並行</h2>
+
+<ul>
+  <li><strong>順序即語意</strong> —— 例如 <code>reorder_tasks</code> 寫 sort_order，順序錯了資料就錯</li>
+  <li><strong>對方不歡迎</strong> —— 爬站台並行等於變相攻擊，本專案網站下載刻意保持序列（還有限速 sleep）</li>
+  <li><strong>共享的單一旗標／連線</strong> —— 前述 <code>download_cancelled</code>，並行前得先重構</li>
+  <li><strong>省下來的時間人感覺不到</strong> —— 200ms → 40ms 沒人在乎，複雜度卻永久留著</li>
+</ul>
+
+<div class="callout good">
+  <span class="label">本案值得做的具體理由</span>
+  <p>環境勾選<strong>每改一次就重跑一次預覽</strong>，3.2 秒的等待會反覆發生。若只是一次性操作，建議別改。</p>
+</div>
+
+<footer class="page">
+  對應程式碼：<code>src-tauri/src/jin/core.rs</code>（型態 B）、<code>src-tauri/src/jin/commands.rs</code>（型態 A + spawn_blocking）
+</footer>
+
+</div>
+
+<script>
+  document.getElementById("themeToggle").addEventListener("click", function () {
+    var root = document.documentElement;
+    var current = root.dataset.theme;
+    // 尚未手動選過 → 以目前系統值為基準往反方向切
+    if (!current) {
+      current = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+    }
+    var next = current === "dark" ? "light" : "dark";
+    root.dataset.theme = next;
+    try { localStorage.setItem("docTheme", next); } catch (e) {}
+  });
+</script>
+</body>
+</html>
