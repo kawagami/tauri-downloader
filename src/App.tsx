@@ -15,8 +15,9 @@ import { Toolbar } from './components/Toolbar';
 import { TaskListView } from './components/TaskListView';
 import { BtView } from './components/bt/BtView';
 import { HttpView } from './components/http/HttpView';
+import { JinView } from './components/jin/JinView';
 
-type Tab = 'web' | 'bt' | 'http';
+type Tab = 'web' | 'bt' | 'http' | 'jin';
 type Theme = 'light' | 'dark';
 
 // 首次渲染前就決定主題,避免閃白;無記錄時跟隨系統
@@ -143,6 +144,13 @@ function App() {
           直鏈下載
           {httpActiveCount > 0 && <span className="tab-badge">{httpActiveCount}</span>}
         </button>
+        <button
+          type="button"
+          className={`tab-btn ${tab === "jin" ? "active" : ""}`}
+          onClick={() => switchTab("jin")}
+        >
+          遊戲設定
+        </button>
         <div className="tab-bar-controls">
           <div className="checkbox-group">
             <input
@@ -205,8 +213,10 @@ function App() {
         </>
       ) : tab === "bt" ? (
         <BtView stats={btStats} />
-      ) : (
+      ) : tab === "http" ? (
         <HttpView stats={httpStats} />
+      ) : (
+        <JinView />
       )}
       <div className="toast-container">
         {[...btToasts, ...httpToasts].map(t => (

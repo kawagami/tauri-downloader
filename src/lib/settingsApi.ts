@@ -15,6 +15,8 @@ export interface AppSettings {
   bandwidth_limit_kbps: number;
   http_default_dir: string;
   bt: BtSettings;
+  /** 工作需求遊戲設定分頁掃描的根目錄 */
+  jin_roots: string[];
 }
 
 export function getAppSettings(): Promise<AppSettings> {

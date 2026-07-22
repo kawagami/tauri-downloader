@@ -20,7 +20,15 @@ pub struct AppSettings {
     pub http_default_dir: String,
     /// BT 設定（port/限速重啟生效，預設目錄即時生效）
     pub bt: BtSettings,
+    /// 工作需求遊戲設定分頁掃描的根目錄（code.*.php 所在）
+    pub jin_roots: Vec<String>,
 }
+
+/// jin 分頁預設掃這兩個根目錄（compose + k8s overlays）
+const DEFAULT_JIN_ROOTS: [&str; 2] = [
+    r"\\wsl.localhost\Ubuntu-Project\home\kawa\job\gameriver\jinbaba\compose\configs\sites",
+    r"\\wsl.localhost\Ubuntu-Project\home\kawa\another-job-env\gameriver\jinbaba\compose-k8s\kustomize\overlays",
+];
 
 impl Default for AppSettings {
     fn default() -> Self {
@@ -29,6 +37,7 @@ impl Default for AppSettings {
             bandwidth_limit_kbps: 0,
             http_default_dir: String::new(),
             bt: BtSettings::default(),
+            jin_roots: DEFAULT_JIN_ROOTS.iter().map(|s| s.to_string()).collect(),
         }
     }
 }

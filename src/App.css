@@ -691,6 +691,41 @@ button:disabled {
   word-break: break-all;
 }
 
+/* ---------- 遊戲設定分頁進度 ---------- */
+
+.jin-progress {
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+
+.jin-progress-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 8px;
+  font-size: 13px;
+}
+
+.jin-progress-path {
+  margin-top: 6px;
+  min-height: 1.2em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl; /* 路徑太長時保留檔名那頭 */
+  text-align: left;
+}
+
+/* 執行中的清單淡出並擋掉點擊,避免看到過期結果還去操作 */
+.task-list-container.is-busy {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
 /* ---------- Modal ---------- */
 
 .modal-backdrop {

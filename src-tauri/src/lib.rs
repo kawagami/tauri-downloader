@@ -13,6 +13,7 @@ pub mod db;
 pub mod error;
 pub mod download_core;
 pub mod http_dl;
+pub mod jin;
 pub mod monitor;
 pub mod providers;
 pub mod settings;
@@ -116,6 +117,8 @@ pub fn run() {
             http_dl::commands::resume_http_download,
             http_dl::commands::update_http_url,
             http_dl::commands::delete_http_download,
+            jin::commands::jin_preview,
+            jin::commands::jin_apply,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
