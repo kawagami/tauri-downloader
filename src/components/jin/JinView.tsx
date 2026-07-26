@@ -13,7 +13,7 @@ import {
   type JinPreview,
   type JinProgress,
 } from "../../lib/jinApi";
-import { JinRootsDialog } from "./JinRootsDialog";
+import { useAutoClearError } from "../../hooks/useAutoClearError";
 
 const ACTION_CLASS: Record<JinAction, string> = {
   add: "status-done",
@@ -23,15 +23,20 @@ const ACTION_CLASS: Record<JinAction, string> = {
   error: "status-error",
 };
 
-export function JinView() {
+interface Props {
+  /** 設定存檔後遞增（根目錄可能改了）→ 重跑預覽 */
+  settingsRev: number;
+  onOpenSettings: () => void;
+}
+
+export function JinView({ settingsRev, onOpenSettings }: Props) {
   const [hall, setHall] = useState("");
   const [suffixRaw, setSuffixRaw] = useState("");
   const [commentEnvs, setCommentEnvs] = useState<string[]>([]);
   const [preview, setPreview] = useState<JinPreview | null>(null);
   const [results, setResults] = useState<JinFilePlan[] | null>(null);
   const [busy, setBusy] = useState<null | "preview" | "apply">(null);
-  const [error, setError] = useState<string | null>(null);
-  const [showRoots, setShowRoots] = useState(false);
+  const [error, setError] = useAutoClearError(12000);
   const [progress, setProgress] = useState<JinProgress | null>(null);
   const [elapsed, setElapsed] = useState(0);
   const startedAt = useRef(0);
@@ -104,6 +109,14 @@ export function JinView() {
     },
     [hall, suffixes, commentEnvs],
   );
+
+  // 設定存檔（可能改了根目錄）→ 已有預覽就重跑，行為與原本 JinRootsDialog 存檔後一致
+  const hasPreview = preview !== null;
+  useEffect(() => {
+    if (settingsRev > 0 && hasPreview) void run();
+    // 只在 settingsRev 變動時觸發；run 會隨 hall/suffix 換 identity
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settingsRev]);
 
   const toggleEnv = useCallback(
     (env: string) => {
@@ -179,7 +192,7 @@ export function JinView() {
           >
             {busy === "apply" ? "套用中…" : `套用${changeCount > 0 ? ` (${changeCount})` : ""}`}
           </button>
-          <button type="button" disabled={busy !== null} onClick={() => setShowRoots(true)}>
+          <button type="button" disabled={busy !== null} onClick={onOpenSettings}>
             根目錄設定
           </button>
         </div>
@@ -288,15 +301,6 @@ export function JinView() {
         )}
       </main>
 
-      {showRoots && (
-        <JinRootsDialog
-          onClose={() => setShowRoots(false)}
-          onSaved={() => {
-            setShowRoots(false);
-            if (preview) void run();
-          }}
-        />
-      )}
     </>
   );
 }

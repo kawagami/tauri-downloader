@@ -1,10 +1,11 @@
-use std::path::PathBuf;
 use std::sync::Arc;
 
 use serde_json::{json, Value};
 use tauri::State;
 
 use super::manager::{filename_from_url, HttpManager, HttpStatus};
+use crate::settings::SettingsState;
+use crate::utils::fs::resolve_dir;
 
 /// 極端情況的後備檔名時間戳(URL 取不出檔名時)。
 fn fallback_timestamp() -> u64 {
@@ -15,10 +16,11 @@ fn fallback_timestamp() -> u64 {
 }
 
 /// 新增 HTTP 直鏈下載並立即開跑。檔名先取 URL path 最後一段,首次回應的
-/// Content-Disposition 會再覆蓋。out_dir 空 = 系統下載資料夾。
+/// Content-Disposition 會再覆蓋。out_dir 空 = 設定的預設目錄,再空 = 系統下載資料夾。
 #[tauri::command]
 pub fn add_http_download(
     state: State<'_, Arc<HttpManager>>,
+    settings: State<'_, SettingsState>,
     url: String,
     out_dir: Option<String>,
 ) -> Result<Value, String> {
@@ -33,11 +35,10 @@ pub fn add_http_download(
         return Ok(json!({ "already_exists": true, "id": existing.id }));
     }
 
-    let dest_dir = out_dir
-        .filter(|s| !s.trim().is_empty())
-        .map(PathBuf::from)
-        .or_else(dirs::download_dir)
-        .unwrap_or_else(|| PathBuf::from("."));
+    let dest_dir = match out_dir.filter(|s| !s.trim().is_empty()) {
+        Some(dir) => resolve_dir(&dir),
+        None => resolve_dir(&settings.get().http.default_dir),
+    };
     let file_name =
         filename_from_url(&parsed).unwrap_or_else(|| format!("download-{}", fallback_timestamp()));
 

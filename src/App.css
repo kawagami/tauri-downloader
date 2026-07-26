@@ -825,6 +825,71 @@ button:disabled {
   margin-top: 16px;
 }
 
+/* ---------- 統一設定 dialog ---------- */
+
+.modal-wide {
+  width: min(720px, calc(100vw - 48px));
+}
+
+.settings-body {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+.settings-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 110px;
+  border-right: 1px solid var(--border);
+  padding-right: 12px;
+}
+
+.settings-nav-btn {
+  text-align: left;
+  padding: 6px 10px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.settings-nav-btn:hover {
+  background: var(--surface-alt);
+}
+
+.settings-nav-btn.active {
+  background: var(--primary-soft);
+  color: var(--primary);
+  font-weight: 600;
+}
+
+.settings-pane {
+  flex: 1;
+  min-width: 0;
+  min-height: 220px;
+}
+
+.settings-pane .toolbar-field {
+  margin-top: 4px;
+}
+
+@media (max-width: 560px) {
+  .settings-body {
+    flex-direction: column;
+  }
+  .settings-nav {
+    flex-direction: row;
+    flex-wrap: wrap;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+    padding: 0 0 8px;
+  }
+}
+
 /* ---------- Toast ---------- */
 
 .toast-container {

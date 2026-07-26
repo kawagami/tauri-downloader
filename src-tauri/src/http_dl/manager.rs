@@ -11,6 +11,7 @@ use tokio::io::{AsyncSeekExt, AsyncWriteExt};
 use tokio::task::JoinSet;
 
 use crate::torrent::commands::sanitize_folder_name;
+use crate::utils::{net::build_client, ratelimit::RateLimiter};
 
 /// 分段並行數(伺服器無連線數限制時 4 段)。
 const SEGMENT_COUNT: u64 = 4;
@@ -161,10 +162,12 @@ pub struct HttpManager {
     next_id: AtomicU64,
     state_path: PathBuf,
     client: reqwest::Client,
+    /// 全域限速器（bytes/s，0 = 不限），所有分段共用一顆桶
+    limiter: Arc<RateLimiter>,
 }
 
 impl HttpManager {
-    pub fn load(state_path: PathBuf) -> Arc<Self> {
+    pub fn load(state_path: PathBuf, limit_bps: u64) -> Arc<Self> {
         let persisted: Vec<PersistedTask> = std::fs::read(&state_path)
             .ok()
             .and_then(|b| serde_json::from_slice(&b).ok())
@@ -213,11 +216,14 @@ impl HttpManager {
             tasks: Mutex::new(tasks),
             next_id: AtomicU64::new(next_id),
             state_path,
-            client: reqwest::Client::builder()
-                .connect_timeout(std::time::Duration::from_secs(30))
-                .build()
-                .expect("reqwest client"),
+            client: build_client(),
+            limiter: RateLimiter::new(Arc::new(AtomicU64::new(limit_bps))),
         })
+    }
+
+    /// 限速即時生效（設定存檔時呼叫）
+    pub fn set_limit(&self, bps: u64) {
+        self.limiter.set_limit(bps);
     }
 
     /// app 啟動時把上次仍在跑的任務接回去(中途殺 app 重開要續傳)。
@@ -414,6 +420,7 @@ impl HttpManager {
                 stop.clone(),
                 abort.clone(),
                 ranged,
+                self.limiter.clone(),
             ));
         }
 
@@ -548,6 +555,7 @@ async fn download_segment(
     stop: Arc<AtomicBool>,
     abort: Arc<AtomicBool>,
     ranged: bool,
+    limiter: Arc<RateLimiter>,
 ) -> Result<(), TaskError> {
     let pos = start + written.load(Ordering::Relaxed);
     let mut req = client.get(&url);
@@ -591,6 +599,16 @@ async fn download_segment(
         let chunk = chunk.map_err(TaskError::net)?;
         file.write_all(&chunk).await.map_err(TaskError::io)?;
         written.fetch_add(chunk.len() as u64, Ordering::Relaxed);
+        // 全域限速：多個分段共用同一顆桶，合計吞吐才是設定值
+        if !limiter
+            .acquire(chunk.len() as u64, || {
+                stop.load(Ordering::Relaxed) || abort.load(Ordering::Relaxed)
+            })
+            .await
+        {
+            let _ = file.flush().await;
+            return Ok(());
+        }
     }
     file.flush().await.map_err(TaskError::io)?;
     Ok(())

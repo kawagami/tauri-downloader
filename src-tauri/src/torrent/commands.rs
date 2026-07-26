@@ -82,15 +82,12 @@ pub async fn add_magnet_inner(
         }
     }
 
-    // 未指定目錄時用 BT 設定的預設下載目錄
-    let out_dir = out_dir
-        .filter(|s| !s.trim().is_empty())
-        .unwrap_or_else(|| {
-            app.state::<SettingsState>()
-                .get()
-                .bt
-                .default_download_dir
-        });
+    // 未指定目錄時用 BT 設定的預設下載目錄（空 = 系統下載資料夾）
+    let out_dir = out_dir.filter(|s| !s.trim().is_empty()).unwrap_or_else(|| {
+        crate::utils::fs::resolve_dir(&app.state::<SettingsState>().get().bt.default_dir)
+            .to_string_lossy()
+            .into_owned()
+    });
 
     // 每個任務放同名子資料夾：magnet dn= 名稱 sanitize，無 dn 用 infohash。
     // librqbit 對明確給的 output_folder 不再套自己的子資料夾，不會雙層。

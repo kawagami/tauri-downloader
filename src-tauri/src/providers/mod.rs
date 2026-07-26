@@ -1,6 +1,8 @@
 use std::fmt;
 use std::path::PathBuf;
-use std::sync::{atomic::{AtomicBool, AtomicU64}, Arc};
+use std::sync::{atomic::AtomicBool, Arc};
+
+use crate::utils::ratelimit::RateLimiter;
 
 use serde::{Deserialize, Serialize};
 use tauri::AppHandle;
@@ -85,7 +87,7 @@ impl Site {
         cached_file_url: String,
         save_path: PathBuf,
         cancelled: Arc<AtomicBool>,
-        bandwidth_limit_bps: Arc<AtomicU64>,
+        limiter: Arc<RateLimiter>,
     ) -> Result<(), DownloadError> {
         match self {
             Site::Wnacg => {
@@ -102,7 +104,7 @@ impl Site {
                     file_url,
                     save_path.clone(),
                     cancelled.clone(),
-                    bandwidth_limit_bps.clone(),
+                    limiter.clone(),
                 )
                 .await;
 
@@ -111,7 +113,7 @@ impl Site {
                 if had_cache && matches!(&result, Err(DownloadError::NotFound)) {
                     tracing::info!("快取 file_url 失效，重新抓取: {}", source_url);
                     let fresh_url = wnacg::get_file_url(app_handle, &source_url).await?;
-                    return wnacg::download(client, app_handle, source_url, fresh_url, save_path, cancelled, bandwidth_limit_bps)
+                    return wnacg::download(client, app_handle, source_url, fresh_url, save_path, cancelled, limiter)
                         .await;
                 }
                 result

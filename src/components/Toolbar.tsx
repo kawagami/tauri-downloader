@@ -14,8 +14,6 @@ interface ToolbarProps {
     pendingCount: number;
     hasDownloadable: boolean;
     hasDoneTasks: boolean;
-    bandwidthKbps: number;
-    onBandwidthChange: (kbps: number) => void;
 }
 
 export const Toolbar: React.FC<ToolbarProps> = ({
@@ -30,33 +28,14 @@ export const Toolbar: React.FC<ToolbarProps> = ({
     pendingCount,
     hasDownloadable,
     hasDoneTasks,
-    bandwidthKbps,
-    onBandwidthChange,
 }) => (
+    // 頻寬限制與預設目錄已搬進統一設定 dialog（tab bar ⚙），這裡只留清單操作
     <div className="sticky-toolbar" style={{ flexDirection: "column", alignItems: "flex-start", gap: "6px" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: "16px", flexWrap: "wrap" }}>
-            <div className="toolbar-field">
-                <span>頻寬限制</span>
-                <input
-                    type="number"
-                    min="0"
-                    step="1"
-                    value={bandwidthKbps === 0 ? "" : bandwidthKbps}
-                    placeholder="無限制"
-                    onChange={e => {
-                        const val = parseInt(e.target.value, 10);
-                        onBandwidthChange(isNaN(val) || val < 0 ? 0 : val);
-                    }}
-                    style={{ width: "80px" }}
-                />
-                <span>KB/s</span>
+        {totalCount > 0 && (
+            <div className="toolbar-summary">
+                共 {totalCount} 筆 · {doneCount} 完成 · {pendingCount} 待下載
             </div>
-            {totalCount > 0 && (
-                <div className="toolbar-summary">
-                    共 {totalCount} 筆 · {doneCount} 完成 · {pendingCount} 待下載
-                </div>
-            )}
-        </div>
+        )}
         <div className="toolbar-actions" style={{ flexWrap: "wrap" }}>
             <button
                 onClick={() => {

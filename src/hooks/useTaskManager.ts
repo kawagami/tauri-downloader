@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { Task, ClipboardPayload } from '../types';
+import { getPref, setPref, PREF_KEYS } from '../lib/uiPrefs';
 
 export interface UseTaskManager {
     tasks: Task[];
@@ -22,7 +23,7 @@ export interface UseTaskManager {
 export const useTaskManager = (): UseTaskManager => {
     const [tasks, setTasks] = useState<Task[]>([]);
     const [volume, setVolumeState] = useState<number>(() =>
-        Number(localStorage.getItem("dingVolume") ?? "1")
+        Number(getPref(PREF_KEYS.volume, "1"))
     );
 
     const volumeRef = useRef(volume);
@@ -31,7 +32,7 @@ export const useTaskManager = (): UseTaskManager => {
         volumeRef.current = v;
         if (gainNodeRef.current) gainNodeRef.current.gain.value = v;
         setVolumeState(v);
-        localStorage.setItem("dingVolume", String(v));
+        setPref(PREF_KEYS.volume, String(v));
     }, []);
 
     const audioRef = useRef<HTMLAudioElement | null>(null);

@@ -1,29 +1,18 @@
-// BT stats 事件唯一訂閱點 — 掛在 App 層（不隨分頁卸載），
-// 完成通知與剪貼簿 magnet 加入通知都在這裡轉成 toast。
+// BT stats 事件唯一訂閱點 — 掛在 App 層（不隨分頁卸載）。
+// 通知走 App 的共用 toast 佇列（useToasts），這裡只負責把事件轉成文字。
 
 import { useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import type { TorrentFinishedEvent, TorrentStatsEvent } from "../lib/btApi";
 
-export interface Toast {
-  key: number;
-  text: string;
-}
-
-export function useTorrentStats(onMagnetAdded?: () => void) {
+export function useTorrentStats(
+  pushToast: (text: string) => void,
+  onMagnetAdded?: () => void,
+) {
   const [stats, setStats] = useState<TorrentStatsEvent | null>(null);
-  const [toasts, setToasts] = useState<Toast[]>([]);
 
   useEffect(() => {
     let cancelled = false;
-
-    const pushToast = (text: string) => {
-      const key = Date.now() + Math.random();
-      setToasts((t) => [...t, { key, text }]);
-      setTimeout(() => {
-        setToasts((t) => t.filter((x) => x.key !== key));
-      }, 6000);
-    };
 
     const unlistenStats = listen<TorrentStatsEvent>("torrent-stats", (e) => {
       if (!cancelled) setStats(e.payload);
@@ -51,7 +40,7 @@ export function useTorrentStats(onMagnetAdded?: () => void) {
       unlistenAdded.then((fn) => fn());
       unlistenAddError.then((fn) => fn());
     };
-  }, [onMagnetAdded]);
+  }, [pushToast, onMagnetAdded]);
 
-  return { stats, toasts };
+  return { stats };
 }

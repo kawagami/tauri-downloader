@@ -8,8 +8,10 @@ use std::sync::Mutex;
 
 use anyhow::{bail, Result};
 
-/// 目錄走訪的並行度（和 commands.rs 的 IO_THREADS 同一個理由：9P 延遲綁定）
-const WALK_THREADS: usize = 8;
+/// jin 全部 I/O 的並行度（走訪、讀檔、寫檔共用）。
+/// WSL UNC 走 9P，每次操作 ~23ms 純延遲、CPU 幾乎閒著 → 靠並行蓋掉延遲。
+/// 8 條實測：走訪 1766ms→135ms、讀寫 1.6s→0.28s；再往上（16）沒更快，只多佔連線。
+pub const IO_THREADS: usize = 8;
 
 /// 找到 `key` 區段，把 `new_entries` 插在區段結尾 `    ],`（4 空格縮排）之前。
 /// 同時支援 `'Key' => [` 與對齊過的 `'Key'   => [`。
@@ -177,7 +179,7 @@ pub fn collect_files(roots: &[String]) -> Result<Vec<String>> {
 
     if !dirs.is_empty() {
         // 各根目錄共用同一個佇列，樹的大小不均也不會有執行緒閒著
-        files.extend(walk_code_php_parallel(dirs, WALK_THREADS)?);
+        files.extend(walk_code_php_parallel(dirs, IO_THREADS)?);
     }
 
     if files.is_empty() {

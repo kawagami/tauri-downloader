@@ -10,7 +10,7 @@ use tauri::{AppHandle, Emitter, State};
 
 use crate::jin::core::{
     build_codes, build_new_content, collect_files, detect_state, extract_env, uncomment_content,
-    State as FileState,
+    State as FileState, IO_THREADS,
 };
 use crate::settings::SettingsState;
 
@@ -42,10 +42,6 @@ pub struct JinProgress {
     pub total: usize,
     pub path: String,
 }
-
-/// WSL UNC 每個檔案 ~23ms 純延遲，序列 70 檔要 1.6s；8 條並行實測降到 ~0.35s。
-/// 再往上（16）沒有更快，只多佔連線。
-const IO_THREADS: usize = 8;
 
 /// 依序回傳結果的並行 map — 工作用 atomic index 分派（各檔耗時不均也不會有人閒著），
 /// 結果寫回自己的 slot，所以輸出順序與輸入相同（清單維持路徑排序）。

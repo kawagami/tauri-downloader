@@ -39,12 +39,14 @@ pub fn run() {
 
             let db = init_db(app.handle())?;
             let state = AppState::new(db, Arc::clone(&monitor_running));
-            state
-                .bandwidth_limit_bps
-                .store(s.bandwidth_limit_kbps * 1024, Ordering::Relaxed);
-            state
-                .monitor_paused
-                .store(!s.monitor_clipboard, Ordering::Relaxed);
+
+            // HTTP 直鏈下載（獨立於 BT 引擎與網站下載）
+            let http_mgr =
+                http_dl::manager::HttpManager::load(app_data_dir.join("http_tasks.json"), s.http.limit_bps);
+
+            // 啟動與「儲存設定」走同一條套用路徑
+            commands::common::apply_runtime_settings(&state, &http_mgr, &s);
+
             app.manage(state);
             app.manage(settings_state);
 
@@ -54,8 +56,6 @@ pub fn run() {
             torrent::state::spawn_init(app.handle().clone());
             torrent::events::spawn_stats_task(app.handle().clone());
 
-            // HTTP 直鏈下載（獨立於 BT 引擎與網站下載）
-            let http_mgr = http_dl::manager::HttpManager::load(app_data_dir.join("http_tasks.json"));
             // 上次關閉時仍在跑的任務自動續傳
             http_mgr.resume_interrupted();
             app.manage(http_mgr);

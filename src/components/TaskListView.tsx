@@ -19,6 +19,7 @@ import { CSS } from "@dnd-kit/utilities";
 import { DownloadableTask } from "../types";
 import { useColumnResize } from "../hooks/useColumnResize";
 import { formatBytes, formatSpeed } from "../lib/format";
+import { PREF_KEYS } from "../lib/uiPrefs";
 
 const formatTime = (secs: number) => {
     if (!isFinite(secs) || secs <= 0) return "計算中";
@@ -170,7 +171,7 @@ export const TaskListView: React.FC<TaskListViewProps> = ({
     onReorder,
     isBatchDownloading,
 }) => {
-    const { colWidths, onMouseDown } = useColumnResize("task-table-col-widths", DEFAULT_WIDTHS);
+    const { colWidths, onMouseDown } = useColumnResize(PREF_KEYS.taskColumns, DEFAULT_WIDTHS);
 
     const sensors = useSensors(useSensor(PointerSensor));
 

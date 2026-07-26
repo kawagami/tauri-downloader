@@ -1,12 +1,14 @@
 // src/commands/common.rs
 
 use crate::db;
+use crate::http_dl::manager::HttpManager;
 use crate::providers::{ClipboardPayload, Site};
 use crate::settings::{AppSettings, SettingsState};
 use crate::state::AppState;
 
 use clipboard::{ClipboardContext, ClipboardProvider};
 use std::sync::atomic::Ordering;
+use std::sync::Arc;
 use tauri::command;
 use tauri::{AppHandle, State};
 
@@ -52,24 +54,29 @@ pub fn get_app_settings(settings: State<'_, SettingsState>) -> AppSettings {
     settings.get()
 }
 
-/// 存 app 設定並即時套用 runtime 旗標（頻寬限制、監控開關）。
+/// 存 app 設定並即時套用 runtime 旗標（網站/直鏈限速、監控開關）。
 /// BT port/限速仍是重啟生效（session 建立時讀取）。
 #[tauri::command]
 pub fn save_app_settings(
     state: State<'_, AppState>,
     settings_state: State<'_, SettingsState>,
+    http: State<'_, Arc<HttpManager>>,
     settings: AppSettings,
 ) -> Result<(), String> {
     settings_state
         .save(settings.clone())
         .map_err(|e| format!("儲存設定失敗: {:?}", e))?;
-    state
-        .bandwidth_limit_bps
-        .store(settings.bandwidth_limit_kbps * 1024, Ordering::Relaxed);
+    apply_runtime_settings(&state, &http, &settings);
+    Ok(())
+}
+
+/// 設定 → runtime：啟動與存檔共用同一條套用路徑，避免兩邊各寫一次而漂移。
+pub fn apply_runtime_settings(state: &AppState, http: &Arc<HttpManager>, s: &AppSettings) {
+    state.limiter.set_limit(s.web.limit_bps);
+    http.set_limit(s.http.limit_bps);
     state
         .monitor_paused
-        .store(!settings.monitor_clipboard, Ordering::Relaxed);
-    Ok(())
+        .store(!s.monitor_clipboard, Ordering::Relaxed);
 }
 
 #[tauri::command]

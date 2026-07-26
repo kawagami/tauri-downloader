@@ -1,8 +1,10 @@
-// 直鏈下載分頁 — 工具列(新增、清除完成、總速度) + 任務清單 + 新增 dialog
+// 直鏈下載分頁 — 共用工具列(新增、清除完成、總速度) + 任務清單 + 新增 dialog
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { deleteHttpDownload, type HttpStatsEvent } from "../../lib/httpApi";
 import { formatSpeed } from "../../lib/format";
+import { useAutoClearError } from "../../hooks/useAutoClearError";
+import { ListToolbar } from "../common/ListToolbar";
 import { HttpRow } from "./HttpRow";
 import { AddHttpDialog } from "./AddHttpDialog";
 
@@ -10,22 +12,15 @@ interface Props {
   stats: HttpStatsEvent | null;
 }
 
+// 預設目錄由 AddHttpDialog 開啟時自己讀（每次開啟都是新 mount），不需要 settingsRev
 export function HttpView({ stats }: Props) {
   const [showAdd, setShowAdd] = useState(false);
-  const [actionError, setActionError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!actionError) return;
-    const t = setTimeout(() => setActionError(null), 6000);
-    return () => clearTimeout(t);
-  }, [actionError]);
+  const [actionError, setActionError] = useAutoClearError();
 
   const tasks = stats?.tasks ?? [];
   const finished = tasks.filter((t) => t.state === "finished");
 
   async function clearFinished() {
-    if (finished.length === 0) return;
-    if (!window.confirm(`清除 ${finished.length} 個已完成任務?已下載檔案會保留。`)) return;
     try {
       await Promise.all(finished.map((t) => deleteHttpDownload(t.id, false)));
     } catch (e) {
@@ -35,19 +30,13 @@ export function HttpView({ stats }: Props) {
 
   return (
     <>
-      <div className="sticky-toolbar bt-toolbar">
-        <div className="toolbar-actions">
-          <button type="button" className="btn-primary" onClick={() => setShowAdd(true)}>
-            ＋ 新增直鏈
-          </button>
-          <button type="button" disabled={finished.length === 0} onClick={clearFinished}>
-            清除完成{finished.length > 0 ? ` (${finished.length})` : ""}
-          </button>
-        </div>
-        <div className="toolbar-summary">
-          {stats && <>↓ {formatSpeed(stats.total_down_bps)}</>}
-        </div>
-      </div>
+      <ListToolbar
+        addLabel="＋ 新增直鏈"
+        onAdd={() => setShowAdd(true)}
+        finishedCount={finished.length}
+        onClearFinished={clearFinished}
+        summary={stats && <>↓ {formatSpeed(stats.total_down_bps)}</>}
+      />
 
       <main className="main-content">
         {actionError && <div className="bt-banner-error">{actionError}</div>}

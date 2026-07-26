@@ -1,13 +1,13 @@
 // useColumnResize.ts
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { getJsonPref, setJsonPref } from "../lib/uiPrefs";
 
 export function useColumnResize(storageKey: string, defaultWidths: number[]) {
     const loadWidths = (): number[] => {
         try {
-            const raw = localStorage.getItem(storageKey);
-            if (raw) {
-                const parsed = JSON.parse(raw);
+            const parsed = getJsonPref<number[] | null>(storageKey, null);
+            if (parsed) {
                 if (Array.isArray(parsed) && parsed.length === defaultWidths.length) return parsed;
             }
         } catch {}
@@ -38,7 +38,7 @@ export function useColumnResize(storageKey: string, defaultWidths: number[]) {
             if (!dragging.current) return;
             dragging.current = null;
             setColWidths(prev => {
-                localStorage.setItem(storageKey, JSON.stringify(prev));
+                setJsonPref(storageKey, prev);
                 return prev;
             });
         };

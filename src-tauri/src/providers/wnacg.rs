@@ -6,9 +6,11 @@ use scraper::{ElementRef, Html, Selector};
 use std::path::PathBuf;
 use tokio::io::AsyncWriteExt;
 use std::sync::{
-    atomic::{AtomicBool, AtomicU64, Ordering},
+    atomic::{AtomicBool, Ordering},
     Arc, OnceLock,
 };
+
+use crate::utils::ratelimit::RateLimiter;
 use tauri::{AppHandle, Emitter, Manager};
 use url::Url;
 
@@ -228,7 +230,7 @@ pub async fn download(
     file_url: String,   // 實際檔案下載網址
     save_path: PathBuf,
     cancelled: Arc<AtomicBool>,
-    bandwidth_limit_bps: Arc<AtomicU64>, // 0 = 無限制
+    limiter: Arc<RateLimiter>, // 共用限速器（bytes/s，0 = 無限制）
 ) -> Result<(), DownloadError> {
     let resp = client.get(&file_url).send().await?;
 
@@ -256,9 +258,6 @@ pub async fn download(
         let mut manager = DownloadManager::new();
         manager.start_download(total_size);
 
-        let mut throttle_downloaded: u64 = 0;
-        let mut throttle_start = std::time::Instant::now();
-        let mut last_limit = bandwidth_limit_bps.load(Ordering::Relaxed);
         let mut last_emit = std::time::Instant::now();
         let emit_interval = std::time::Duration::from_millis(250);
 
@@ -271,32 +270,12 @@ pub async fn download(
             file.write_all(&chunk).await?;
             downloaded += chunk.len() as u64;
 
-            let current_limit = bandwidth_limit_bps.load(Ordering::Relaxed);
-            if current_limit != last_limit {
-                throttle_start = std::time::Instant::now();
-                throttle_downloaded = 0;
-                last_limit = current_limit;
-            }
-            throttle_downloaded += chunk.len() as u64;
-
-            if current_limit > 0 {
-                let expected = std::time::Duration::from_secs_f64(
-                    throttle_downloaded as f64 / current_limit as f64,
-                );
-                let actual = throttle_start.elapsed();
-                if expected > actual {
-                    // 限速 sleep 切小段，期間仍能即時回應取消
-                    let mut remaining = expected - actual;
-                    let step = std::time::Duration::from_millis(250);
-                    while remaining > std::time::Duration::ZERO {
-                        if cancelled.load(Ordering::Relaxed) {
-                            return Err(DownloadError::Cancelled);
-                        }
-                        let d = remaining.min(step);
-                        tokio::time::sleep(d).await;
-                        remaining -= d;
-                    }
-                }
+            // 限速：共用 token bucket，sleep 期間仍能即時回應取消
+            if !limiter
+                .acquire(chunk.len() as u64, || cancelled.load(Ordering::Relaxed))
+                .await
+            {
+                return Err(DownloadError::Cancelled);
             }
 
             // 節流：每 250ms 發一次進度事件；emit 失敗只記錄，不中斷下載

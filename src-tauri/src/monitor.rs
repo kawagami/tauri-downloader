@@ -116,11 +116,16 @@ pub fn start_clipboard_monitor(app_handle: AppHandle, running: Arc<AtomicBool>) 
                                     match site.fetch_details(&handle, &url_to_fetch).await {
                                         Ok(payload) => {
                                             // 檢查下載目錄是否已有同名檔案（含 _N 後綴變體）
-                                            let already_exists = handle
-                                                .path()
-                                                .download_dir()
+                                            // 目錄來源與實際下載一致：AppSettings.web.default_dir（空 = 系統下載夾）
+                                            let web_dir = crate::utils::fs::resolve_dir(
+                                                &handle
+                                                    .state::<crate::settings::SettingsState>()
+                                                    .get()
+                                                    .web
+                                                    .default_dir,
+                                            );
+                                            let already_exists = std::fs::read_dir(web_dir)
                                                 .ok()
-                                                .and_then(|dir| std::fs::read_dir(dir).ok())
                                                 .map(|entries| {
                                                     let prefix = sanitize(&payload.title);
                                                     let exact = format!("{}.zip", prefix);

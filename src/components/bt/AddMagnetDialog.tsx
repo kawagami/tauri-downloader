@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
-import { open } from "@tauri-apps/plugin-dialog";
 import { addMagnet } from "../../lib/btApi";
 import { updateAppSettings } from "../../lib/settingsApi";
+import { pickDir } from "../../lib/pickDir";
 
 interface Props {
   defaultDir: string;
@@ -31,8 +31,8 @@ export function AddMagnetDialog({ defaultDir, onClose, onAdded, onDefaultDirSave
   }, []);
 
   async function pickFolder() {
-    const dir = await open({ directory: true, defaultPath: outDir || undefined });
-    if (typeof dir === "string") setOutDir(dir);
+    const dir = await pickDir(outDir);
+    if (dir) setOutDir(dir);
   }
 
   async function submit() {
@@ -45,7 +45,7 @@ export function AddMagnetDialog({ defaultDir, onClose, onAdded, onDefaultDirSave
         try {
           await updateAppSettings((s) => ({
             ...s,
-            bt: { ...s.bt, default_download_dir: outDir },
+            bt: { ...s.bt, default_dir: outDir },
           }));
           onDefaultDirSaved(outDir);
         } catch {}

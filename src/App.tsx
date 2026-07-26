@@ -3,16 +3,18 @@
 import React, { useCallback, useEffect, useState } from "react";
 import "./App.css";
 
-import { getAppSettings, updateAppSettings } from './lib/settingsApi';
+import { getPref, setPref, PREF_KEYS, migrateLegacyPrefs } from './lib/uiPrefs';
 
 import { useTaskManager } from './hooks/useTaskManager';
 import { useClipboardMonitor } from './hooks/useClipboardMonitor';
 import { useUrlDrop } from './hooks/useUrlDrop';
 import { useDownloadTasks } from './hooks/useDownloadTasks';
+import { useToasts } from './hooks/useToasts';
 import { useTorrentStats } from './hooks/useTorrentStats';
 import { useHttpStats } from './hooks/useHttpStats';
 import { Toolbar } from './components/Toolbar';
 import { TaskListView } from './components/TaskListView';
+import { SettingsDialog, type SettingsSection } from './components/SettingsDialog';
 import { BtView } from './components/bt/BtView';
 import { HttpView } from './components/http/HttpView';
 import { JinView } from './components/jin/JinView';
@@ -22,7 +24,7 @@ type Theme = 'light' | 'dark';
 
 // 首次渲染前就決定主題,避免閃白;無記錄時跟隨系統
 function initTheme(): Theme {
-  const saved = localStorage.getItem("theme") as Theme | null;
+  const saved = localStorage.getItem(PREF_KEYS.theme) as Theme | null;
   const theme = saved ?? (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
   document.documentElement.dataset.theme = theme;
   return theme;
@@ -43,16 +45,15 @@ function App() {
     reorderTasks,
   } = useDownloadTasks(tasks, removeTask);
 
-  // BT / 直鏈 stats 訂閱掛 App 層，切分頁不中斷;剪貼簿 magnet 加入時播 ding
-  const { stats: btStats, toasts: btToasts } = useTorrentStats(playDing);
-  const { stats: httpStats, toasts: httpToasts } = useHttpStats();
+  // BT / 直鏈 stats 訂閱掛 App 層，切分頁不中斷；兩者共用同一條 toast 佇列
+  const { toasts, pushToast } = useToasts();
+  const { stats: btStats } = useTorrentStats(pushToast, playDing);
+  const { stats: httpStats } = useHttpStats(pushToast);
 
-  const [tab, setTab] = useState<Tab>(() =>
-    (localStorage.getItem("activeTab") as Tab) || "web"
-  );
+  const [tab, setTab] = useState<Tab>(() => (getPref(PREF_KEYS.activeTab, "web") as Tab));
   const switchTab = useCallback((t: Tab) => {
     setTab(t);
-    localStorage.setItem("activeTab", t);
+    setPref(PREF_KEYS.activeTab, t);
   }, []);
 
   const [theme, setTheme] = useState<Theme>(initTheme);
@@ -60,9 +61,19 @@ function App() {
     setTheme(prev => {
       const next = prev === "light" ? "dark" : "light";
       document.documentElement.dataset.theme = next;
-      localStorage.setItem("theme", next);
+      setPref(PREF_KEYS.theme, next);
       return next;
     });
+  }, []);
+
+  // 統一設定 dialog：所有後端設定的唯一入口，各分頁只是開到對應分區
+  const [settingsSection, setSettingsSection] = useState<SettingsSection | null>(null);
+  // 存檔後遞增 → 各分頁重讀自己關心的設定
+  const [settingsRev, setSettingsRev] = useState(0);
+
+  // 舊版散在 localStorage 的後端設定一次性搬進 app_settings.json
+  useEffect(() => {
+    migrateLegacyPrefs().then(() => setSettingsRev(r => r + 1));
   }, []);
 
   const btActiveCount =
@@ -71,39 +82,13 @@ function App() {
   const httpActiveCount =
     httpStats?.tasks.filter(t => t.state !== "finished").length ?? 0;
 
-  // 頻寬限制持久化在 app_settings.json;後端啟動已自行套用,mount 只同步 UI
-  const [bandwidthKbps, setBandwidthKbps] = useState<number>(0);
-  useEffect(() => {
-    (async () => {
-      try {
-        let s = await getAppSettings();
-        // 舊版 localStorage 值一次性遷移
-        const legacy = localStorage.getItem("bandwidthKbps");
-        if (legacy !== null) {
-          localStorage.removeItem("bandwidthKbps");
-          const kbps = Number(legacy) || 0;
-          if (kbps > 0 && s.bandwidth_limit_kbps === 0) {
-            s = await updateAppSettings(cur => ({ ...cur, bandwidth_limit_kbps: kbps }));
-          }
-        }
-        setBandwidthKbps(s.bandwidth_limit_kbps);
-      } catch {}
-    })();
-  }, []);
-
   const doneCount = downloadTasks.filter(t => t.status === "done").length;
   const pendingCount = downloadTasks.filter(
     t => t.status === "idle" || t.status === "error" || t.status === "paused"
   ).length;
 
-  const handleBandwidthChange = useCallback(async (kbps: number) => {
-    setBandwidthKbps(kbps);
-    // save_app_settings 會即時套用頻寬限制
-    await updateAppSettings(s => ({ ...s, bandwidth_limit_kbps: kbps }));
-  }, []);
-
-  const handleMonitorChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
-    await setMonitorClipboard(e.target.checked);
+  const handleMonitorChange = useCallback(async (enabled: boolean) => {
+    await setMonitorClipboard(enabled);
   }, [setMonitorClipboard]);
 
   return (
@@ -157,23 +142,18 @@ function App() {
               type="checkbox"
               id="monitorClipboard"
               checked={monitorClipboard}
-              onChange={handleMonitorChange}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleMonitorChange(e.target.checked)}
             />
             <label htmlFor="monitorClipboard">監控剪貼簿</label>
           </div>
-          <div className="toolbar-field">
-            <span>通知音量</span>
-            <input
-              type="range"
-              min="0"
-              max="3"
-              step="0.05"
-              value={volume}
-              onChange={e => setVolume(Number(e.target.value))}
-              style={{ width: "80px" }}
-            />
-            <span style={{ width: "28px" }}>{Math.round(volume * 100)}%</span>
-          </div>
+          <button
+            type="button"
+            className="btn-sm"
+            onClick={() => setSettingsSection("general")}
+            title="設定"
+          >
+            ⚙ 設定
+          </button>
           <button
             type="button"
             className="btn-sm theme-toggle"
@@ -198,8 +178,6 @@ function App() {
             pendingCount={pendingCount}
             hasDownloadable={pendingCount > 0}
             hasDoneTasks={downloadTasks.some(t => t.status === "done")}
-            bandwidthKbps={bandwidthKbps}
-            onBandwidthChange={handleBandwidthChange}
           />
           <main className="main-content">
             <TaskListView
@@ -212,14 +190,34 @@ function App() {
           </main>
         </>
       ) : tab === "bt" ? (
-        <BtView stats={btStats} />
+        <BtView
+          stats={btStats}
+          settingsRev={settingsRev}
+          onOpenSettings={() => setSettingsSection("bt")}
+        />
       ) : tab === "http" ? (
         <HttpView stats={httpStats} />
       ) : (
-        <JinView />
+        <JinView
+          settingsRev={settingsRev}
+          onOpenSettings={() => setSettingsSection("jin")}
+        />
+      )}
+      {settingsSection && (
+        <SettingsDialog
+          section={settingsSection}
+          onClose={() => setSettingsSection(null)}
+          onSaved={() => setSettingsRev(r => r + 1)}
+          volume={volume}
+          onVolumeChange={setVolume}
+          theme={theme}
+          onToggleTheme={toggleTheme}
+          monitorClipboard={monitorClipboard}
+          onMonitorChange={handleMonitorChange}
+        />
       )}
       <div className="toast-container">
-        {[...btToasts, ...httpToasts].map(t => (
+        {toasts.map(t => (
           <div key={t.key} className="toast">
             {t.text}
           </div>

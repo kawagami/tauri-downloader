@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
-import { open } from "@tauri-apps/plugin-dialog";
 import { addHttpDownload } from "../../lib/httpApi";
 import { getAppSettings, updateAppSettings } from "../../lib/settingsApi";
+import { pickDir } from "../../lib/pickDir";
 
 interface Props {
   onClose: () => void;
@@ -18,20 +18,11 @@ export function AddHttpDialog({ onClose, onAdded }: Props) {
 
   // 預設目錄自動帶入(app_settings.json,使用者已改過就不覆蓋)
   useEffect(() => {
-    (async () => {
-      try {
-        let s = await getAppSettings();
-        // 舊版 localStorage 值一次性遷移
-        const legacy = localStorage.getItem("httpDefaultDir");
-        if (legacy !== null) {
-          localStorage.removeItem("httpDefaultDir");
-          if (legacy && !s.http_default_dir) {
-            s = await updateAppSettings((cur) => ({ ...cur, http_default_dir: legacy }));
-          }
-        }
-        if (s.http_default_dir) setOutDir((prev) => prev || s.http_default_dir);
-      } catch {}
-    })();
+    getAppSettings()
+      .then((s) => {
+        if (s.http.default_dir) setOutDir((prev) => prev || s.http.default_dir);
+      })
+      .catch(() => {});
   }, []);
 
   // 剪貼簿是 http(s) 連結就自動帶入
@@ -46,8 +37,8 @@ export function AddHttpDialog({ onClose, onAdded }: Props) {
   }, []);
 
   async function pickFolder() {
-    const dir = await open({ directory: true, defaultPath: outDir || undefined });
-    if (typeof dir === "string") setOutDir(dir);
+    const dir = await pickDir(outDir);
+    if (dir) setOutDir(dir);
   }
 
   async function submit() {
@@ -58,7 +49,10 @@ export function AddHttpDialog({ onClose, onAdded }: Props) {
       // 勾選時記住目錄;留空 = 清除預設,回到系統下載資料夾。存失敗不擋加入
       if (saveAsDefault) {
         try {
-          await updateAppSettings((s) => ({ ...s, http_default_dir: outDir.trim() }));
+          await updateAppSettings((s) => ({
+            ...s,
+            http: { ...s.http, default_dir: outDir.trim() },
+          }));
         } catch {}
       }
       onAdded(result.already_exists ? result.id : null);

@@ -1,14 +1,12 @@
-// 直鏈下載 stats 事件唯一訂閱點 — 掛 App 層（不隨分頁卸載），
-// 完成通知轉 toast。
+// 直鏈下載 stats 事件唯一訂閱點 — 掛 App 層（不隨分頁卸載）。
+// 完成通知推 App 的共用 toast 佇列（useToasts）。
 
 import { useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import type { HttpFinishedEvent, HttpStatsEvent } from "../lib/httpApi";
-import type { Toast } from "./useTorrentStats";
 
-export function useHttpStats() {
+export function useHttpStats(pushToast: (text: string) => void) {
   const [stats, setStats] = useState<HttpStatsEvent | null>(null);
-  const [toasts, setToasts] = useState<Toast[]>([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -18,12 +16,7 @@ export function useHttpStats() {
     });
     const unlistenFinished = listen<HttpFinishedEvent>("http-finished", (e) => {
       if (cancelled) return;
-      const key = Date.now() + Math.random();
-      const text = `下載完成:${e.payload.name}`;
-      setToasts((t) => [...t, { key, text }]);
-      setTimeout(() => {
-        setToasts((t) => t.filter((x) => x.key !== key));
-      }, 6000);
+      pushToast(`下載完成:${e.payload.name}`);
     });
 
     return () => {
@@ -31,7 +24,7 @@ export function useHttpStats() {
       unlistenStats.then((fn) => fn());
       unlistenFinished.then((fn) => fn());
     };
-  }, []);
+  }, [pushToast]);
 
-  return { stats, toasts };
+  return { stats };
 }

@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::net::SocketAddr;
 use std::num::NonZeroU32;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -6,6 +7,7 @@ use std::sync::{Arc, Mutex, RwLock};
 use std::time::Instant;
 
 use anyhow::Context;
+use librqbit::dht::PersistentDhtConfig;
 use librqbit::limits::LimitsConfig;
 use librqbit::{Api, Session, SessionOptions, SessionPersistenceConfig};
 use tauri::{AppHandle, Emitter, Manager};
@@ -99,9 +101,46 @@ pub fn spawn_init(app: AppHandle) {
     });
 }
 
+/// 0 = 不限 → None；其餘夾到 u32 上限
+fn nz_u32(bps: u64) -> Option<NonZeroU32> {
+    NonZeroU32::new(bps.min(u32::MAX as u64) as u32)
+}
+
+/// DHT 綁 port 失敗時的重試次數（每次 librqbit 會重挑一個隨機 port）
+const DHT_BIND_ATTEMPTS: u32 = 4;
+
+/// librqbit 的 DHT 會把上次用的 UDP port 存進 dht.json 下次沿用。
+/// Windows 上 Hyper-V/WSL 會保留成段的 ephemeral port（`netsh interface ipv4
+/// show excludedportrange protocol=udp`），一旦存到保留範圍內的 port，之後
+/// 每次啟動都 os error 10013（存取被拒）而不是「port 被佔用」，永遠好不了。
+/// 所以：先預檢綁得起來嗎，綁不起來就砍掉檔案讓它重挑；啟動失敗也同樣處理後重試。
+fn dht_persisted_addr(path: &std::path::Path) -> Option<SocketAddr> {
+    let raw = std::fs::read_to_string(path).ok()?;
+    let value: serde_json::Value = serde_json::from_str(&raw).ok()?;
+    value.get("addr")?.as_str()?.parse().ok()
+}
+
+fn drop_dht_state(path: &std::path::Path, reason: &str) {
+    if path.exists() {
+        match std::fs::remove_file(path) {
+            Ok(()) => tracing::warn!("重設 DHT 狀態（{}）: {:?}", reason, path),
+            Err(e) => tracing::error!("刪除 DHT 狀態失敗 {:?}: {}", path, e),
+        }
+    }
+}
+
+/// 只針對「綁 socket 被拒」重試；其他錯誤（如設定錯誤）直接往上丟
+fn is_bind_error(err: &anyhow::Error) -> bool {
+    let msg = format!("{:#}", err);
+    msg.contains("error binding socket") || msg.contains("os error 10013")
+}
+
 pub async fn init(app_data_dir: PathBuf, settings: BtSettings) -> anyhow::Result<TorrentState> {
     let session_dir = app_data_dir.join("bt-session");
-    let download_dir = PathBuf::from(&settings.default_download_dir);
+    // DHT 狀態放自己的 session 目錄：librqbit 預設是 %LOCALAPPDATA%\rqbit\dht\cache\dht.json，
+    // 與舊 magnet-downloader 共用同一份（連 DHT 身分與 port 都共用）
+    let dht_path = session_dir.join("dht.json");
+    let download_dir = crate::utils::fs::resolve_dir(&settings.default_dir);
 
     // 固定 port 有設就用，否則 rqbit CLI 同款預設 range
     let listen_port_range = match settings.listen_port {
@@ -109,31 +148,55 @@ pub async fn init(app_data_dir: PathBuf, settings: BtSettings) -> anyhow::Result
         None => 4240..4260,
     };
 
-    let session = Session::new_with_opts(
-        download_dir,
-        SessionOptions {
+    // 預檢：上次存的 DHT port 現在綁不起來就先砍掉，不必等 session 建到一半才失敗
+    if let Some(addr) = dht_persisted_addr(&dht_path) {
+        if std::net::UdpSocket::bind(addr).is_err() {
+            drop_dht_state(&dht_path, &format!("{} 綁不起來", addr));
+        }
+    }
+
+    let mut last_err: Option<anyhow::Error> = None;
+    for attempt in 1..=DHT_BIND_ATTEMPTS {
+        let opts = SessionOptions {
             persistence: Some(SessionPersistenceConfig::Json {
-                folder: Some(session_dir),
+                folder: Some(session_dir.clone()),
             }),
             fastresume: true,
-            listen_port_range: Some(listen_port_range),
+            listen_port_range: Some(listen_port_range.clone()),
             enable_upnp_port_forwarding: true,
+            dht_config: Some(PersistentDhtConfig {
+                config_filename: Some(dht_path.clone()),
+                ..Default::default()
+            }),
             ratelimits: LimitsConfig {
-                upload_bps: settings.upload_limit_bps.and_then(NonZeroU32::new),
-                download_bps: settings.download_limit_bps.and_then(NonZeroU32::new),
+                // 設定統一用 u64 bytes/s、0 = 不限；librqbit 要 NonZeroU32
+                upload_bps: nz_u32(settings.upload_limit_bps),
+                download_bps: nz_u32(settings.download_limit_bps),
             },
             ..Default::default()
-        },
-    )
-    .await
-    .context("failed to create librqbit session")?;
+        };
 
-    let api = Api::new(session.clone(), None);
+        match Session::new_with_opts(download_dir.clone(), opts)
+            .await
+            .context("failed to create librqbit session")
+        {
+            Ok(session) => {
+                let api = Api::new(session.clone(), None);
+                return Ok(TorrentState {
+                    api,
+                    session,
+                    pending: Mutex::new(HashMap::new()),
+                    pending_seq: AtomicU64::new(0),
+                });
+            }
+            Err(e) if is_bind_error(&e) && attempt < DHT_BIND_ATTEMPTS => {
+                tracing::warn!("BT session 綁 port 失敗（第 {} 次），換 port 重試: {:#}", attempt, e);
+                drop_dht_state(&dht_path, "綁 port 被拒");
+                last_err = Some(e);
+            }
+            Err(e) => return Err(e),
+        }
+    }
 
-    Ok(TorrentState {
-        api,
-        session,
-        pending: Mutex::new(HashMap::new()),
-        pending_seq: AtomicU64::new(0),
-    })
+    Err(last_err.unwrap_or_else(|| anyhow::anyhow!("failed to create librqbit session")))
 }
