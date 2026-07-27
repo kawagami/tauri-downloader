@@ -78,7 +78,7 @@ pub fn update_http_url(
     }
     reqwest::Url::parse(&url).map_err(|_| "無效的下載連結".to_string())?;
     let task = state.find(id).ok_or("任務不存在")?;
-    *task.url.lock().unwrap() = url;
+    *task.job.url.lock().unwrap() = url;
     if task.status() != HttpStatus::Running {
         state.spawn_run(task);
     }

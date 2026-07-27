@@ -8,6 +8,10 @@ use tauri::{AppHandle, Emitter, Manager};
 
 use super::manager::{HttpManager, HttpStatus};
 
+/// 跑動中每幾個 tick 才落地一次進度（tick = 1 秒）。狀態轉換另外會即時 persist，
+/// 這裡只影響「被強制砍掉時進度退回多少」，換掉每秒重寫整份任務檔的成本。
+const PERSIST_EVERY_TICKS: u32 = 5;
+
 /// 每秒收集直鏈任務狀態推 "http-stats" event;速度 = 兩次 tick 的
 /// downloaded 差值。finished 轉換時推 "http-finished"(首 tick 不發,
 /// 避免重啟恢復的已完成任務誤報)。清單空且上一輪也空時不 emit。
@@ -17,6 +21,7 @@ pub fn spawn_http_stats_task(app: AppHandle) {
         let mut was_finished: HashMap<u64, bool> = HashMap::new();
         let mut first_tick = true;
         let mut prev_empty = true;
+        let mut ticks_since_persist: u32 = 0;
         let mut interval = tokio::time::interval(Duration::from_secs(1));
         loop {
             interval.tick().await;
@@ -33,7 +38,7 @@ pub fn spawn_http_stats_task(app: AppHandle) {
             let mut total_down_bps: u64 = 0;
             for t in &tasks {
                 let downloaded = t.downloaded();
-                let total = t.total_bytes.load(Ordering::Relaxed);
+                let total = t.total_bytes();
                 let prev = prev_bytes.insert(t.id, downloaded).unwrap_or(downloaded);
                 let status = t.status();
                 let bps = if status == HttpStatus::Running {
@@ -46,8 +51,7 @@ pub fn spawn_http_stats_task(app: AppHandle) {
                 let finished = status == HttpStatus::Finished;
                 let prev_fin = was_finished.insert(t.id, finished).unwrap_or(false);
                 if !first_tick && !prev_fin && finished {
-                    let name = t.file_name.lock().unwrap().clone();
-                    let _ = app.emit("http-finished", json!({ "id": t.id, "name": name }));
+                    let _ = app.emit("http-finished", json!({ "id": t.id, "name": t.file_name() }));
                 }
 
                 let progress = if total > 0 {
@@ -59,7 +63,7 @@ pub fn spawn_http_stats_task(app: AppHandle) {
                 };
                 payload_tasks.push(json!({
                     "id": t.id,
-                    "name": t.file_name.lock().unwrap().clone(),
+                    "name": t.file_name(),
                     "state": match status {
                         HttpStatus::Running => "running",
                         HttpStatus::Paused => "paused",
@@ -77,9 +81,16 @@ pub fn spawn_http_stats_task(app: AppHandle) {
             prev_bytes.retain(|k, _| tasks.iter().any(|t| t.id == *k));
             was_finished.retain(|k, _| tasks.iter().any(|t| t.id == *k));
 
-            // 跑動中的任務每秒落地一次進度,殺掉 app 也只丟最後一秒。
+            // 跑動中的任務定期落地進度。狀態轉換（開始/暫停/完成/錯誤/刪除）本來就會
+            // 各自 persist，這裡只是讓「跑到一半被砍掉」少退回一點，不必每秒寫整份檔。
             if tasks.iter().any(|t| t.status() == HttpStatus::Running) {
-                mgr.persist();
+                ticks_since_persist += 1;
+                if ticks_since_persist >= PERSIST_EVERY_TICKS {
+                    ticks_since_persist = 0;
+                    mgr.persist();
+                }
+            } else {
+                ticks_since_persist = 0;
             }
 
             first_tick = false;

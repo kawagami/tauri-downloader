@@ -1,17 +1,13 @@
-use crate::{download_core::DownloadManager, error::DownloadError, providers::{ClipboardPayload, DownloadProgress}, state::AppState};
+// wnacg provider —— 只負責「爬」：驗證網址、抓元資料、解析出真正的檔案連結。
+// 實際下載走共用引擎 crate::dl（與直鏈下載同一套），這裡不再有自己的串流迴圈。
 
-use futures_util::StreamExt;
+use crate::{error::DownloadError, providers::ClipboardPayload, state::AppState};
+
 use regex::Regex;
 use scraper::{ElementRef, Html, Selector};
-use std::path::PathBuf;
-use tokio::io::AsyncWriteExt;
-use std::sync::{
-    atomic::{AtomicBool, Ordering},
-    Arc, OnceLock,
-};
+use std::sync::OnceLock;
 
-use crate::utils::ratelimit::RateLimiter;
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Manager};
 use url::Url;
 
 /// 站台主網域（`Site::from_url` 的辨識與這裡的驗證共用）
@@ -234,119 +230,6 @@ pub async fn fetch_payload_details(
         created_at,
         db_status,
     })
-}
-
-pub async fn download(
-    client: &reqwest::Client,
-    app_handle: &AppHandle,
-    source_url: String, // 原始網頁網址 (用於進度事件辨識)
-    file_url: String,   // 實際檔案下載網址
-    save_path: PathBuf,
-    cancelled: Arc<AtomicBool>,
-    limiter: Arc<RateLimiter>, // 共用限速器（bytes/s，0 = 無限制）
-) -> Result<(), DownloadError> {
-    let resp = client.get(&file_url).send().await?;
-
-    if matches!(resp.status(), reqwest::StatusCode::NOT_FOUND | reqwest::StatusCode::GONE) {
-        return Err(DownloadError::NotFound);
-    }
-    if !resp.status().is_success() {
-        return Err(DownloadError::Other(format!(
-            "下載失敗 status: {}, Url: {}",
-            resp.status(),
-            file_url
-        )));
-    }
-
-    let total_size = resp.content_length().unwrap_or(0);
-
-    // 先寫 `.part`，成功才 rename 成正式檔名：
-    // 中途失敗會在外層刪殘檔，但 app 被殺／斷電時刪不到 —— 若直接寫 .zip，
-    // 半截檔會讓 monitor 的「已下載過」檢查永遠略過這個 URL（且不會有任何提示）。
-    let part_path = crate::utils::fs::part_path(&save_path);
-
-    let result: Result<(), DownloadError> = async {
-        // tokio::fs 非阻塞寫檔：同步 I/O 會卡住 async runtime 的 worker thread，
-        // 慢碟時拖累同 runtime 上的 BT stats / 直鏈下載 / IPC
-        let mut file = tokio::fs::File::create(&part_path).await?;
-        let mut downloaded: u64 = 0;
-        let mut stream = resp.bytes_stream();
-        let mut manager = DownloadManager::new();
-        manager.start_download(total_size);
-
-        let mut last_emit = std::time::Instant::now();
-        let emit_interval = std::time::Duration::from_millis(250);
-
-        while let Some(chunk) = stream.next().await {
-            if cancelled.load(Ordering::Relaxed) {
-                return Err(DownloadError::Cancelled);
-            }
-
-            let chunk = chunk?;
-            file.write_all(&chunk).await?;
-            downloaded += chunk.len() as u64;
-
-            // 限速：共用 token bucket，sleep 期間仍能即時回應取消
-            if !limiter
-                .acquire(chunk.len() as u64, || cancelled.load(Ordering::Relaxed))
-                .await
-            {
-                return Err(DownloadError::Cancelled);
-            }
-
-            // 節流：每 250ms 發一次進度事件；emit 失敗只記錄，不中斷下載
-            if last_emit.elapsed() >= emit_interval {
-                let metrics = manager.calculate_metrics(downloaded, total_size);
-                if let Err(e) = app_handle.emit(
-                    "download_progress",
-                    DownloadProgress {
-                        url: source_url.clone(),
-                        progress: metrics.percentage,
-                        speed_bytes_per_sec: metrics.speed_bytes_per_sec,
-                        time_remaining_secs: metrics.time_remaining_secs,
-                    },
-                ) {
-                    tracing::warn!("進度事件 emit 失敗: {}", e);
-                }
-                last_emit = std::time::Instant::now();
-            }
-        }
-
-        file.flush().await?;
-        drop(file); // Windows 上 handle 還開著不能 rename
-
-        // 完整位元組數對得上才算完成：stream 提前斷線不會回 Err，
-        // 半截檔不能被 rename 成正式檔名（否則同樣會誤導 monitor）
-        if total_size > 0 && downloaded < total_size {
-            return Err(DownloadError::Other(format!(
-                "下載不完整（{}/{} bytes），可重試",
-                downloaded, total_size
-            )));
-        }
-        tokio::fs::rename(&part_path, &save_path).await?;
-
-        // 下載完成後補發最終進度（確保前端顯示 100%）
-        let metrics = manager.calculate_metrics(downloaded, total_size);
-        if let Err(e) = app_handle.emit(
-            "download_progress",
-            DownloadProgress {
-                url: source_url.clone(),
-                progress: metrics.percentage,
-                speed_bytes_per_sec: metrics.speed_bytes_per_sec,
-                time_remaining_secs: metrics.time_remaining_secs,
-            },
-        ) {
-            tracing::warn!("進度事件 emit 失敗: {}", e);
-        }
-
-        Ok(())
-    }
-    .await;
-
-    if result.is_err() {
-        let _ = tokio::fs::remove_file(&part_path).await;
-    }
-    result
 }
 
 #[cfg(test)]

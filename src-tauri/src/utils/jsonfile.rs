@@ -25,6 +25,34 @@ pub fn backup_bad_file(path: &Path, reason: &str) {
     }
 }
 
+/// 原子寫入 JSON。
+///
+/// `std::fs::write` 是「先 truncate 再寫」—— 進行中的直鏈下載每幾秒就寫一次任務檔，
+/// 這時候斷電/被砍掉留下的就是半截 JSON，下次啟動整份被判定壞檔、任務全滅。
+/// 先寫 `.tmp` 再 rename（同磁碟的 rename 是原子的）就不會有半截狀態：
+/// 要嘛是舊的完整內容，要嘛是新的完整內容。
+pub fn write_json_atomic<T: serde::Serialize>(path: &Path, value: &T) -> std::io::Result<()> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let json = serde_json::to_string_pretty(value)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+
+    let mut tmp_name = path.file_name().unwrap_or_default().to_os_string();
+    tmp_name.push(".tmp");
+    let tmp = path.with_file_name(tmp_name);
+
+    std::fs::write(&tmp, json)?;
+    // Windows 的 rename 會覆蓋既有檔案（MOVEFILE_REPLACE_EXISTING）
+    match std::fs::rename(&tmp, path) {
+        Ok(()) => Ok(()),
+        Err(e) => {
+            let _ = std::fs::remove_file(&tmp);
+            Err(e)
+        }
+    }
+}
+
 /// 讀 JSON 檔。檔案不存在回 None（正常首次啟動，不記日誌）；
 /// 讀取或解析失敗會記日誌並把壞檔改名保留，再回 None。
 pub fn load_json<T: DeserializeOwned>(path: &Path) -> Option<T> {
@@ -75,6 +103,23 @@ mod tests {
             .filter(|e| e.file_name().to_string_lossy().starts_with("state.json.bad-"))
             .collect();
         assert_eq!(backups.len(), 1);
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn atomic_write_roundtrips_and_leaves_no_tmp() {
+        let dir = std::env::temp_dir().join(format!("jsonfile-atomic-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("state.json");
+
+        write_json_atomic(&path, &serde_json::json!({ "a": 1 })).unwrap();
+        // 覆寫既有檔也要成功（Windows rename 會 replace）
+        write_json_atomic(&path, &serde_json::json!({ "a": 2 })).unwrap();
+
+        let v: serde_json::Value = load_json(&path).unwrap();
+        assert_eq!(v["a"], 2);
+        assert!(!dir.join("state.json.tmp").exists(), "暫存檔應該已被 rename 掉");
 
         std::fs::remove_dir_all(&dir).ok();
     }

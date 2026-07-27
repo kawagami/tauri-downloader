@@ -44,9 +44,11 @@ pub fn update_task_status(app_handle: AppHandle, url: String, status: String) ->
         .map_err(|e| format!("更新狀態失敗: {:?}", e))
 }
 
+/// 停止所有進行中的網站下載（工具列「停止下載」）。
+/// 旗標已是 per-task，這裡只是「全部取消」的入口。
 #[tauri::command]
 pub fn cancel_download(state: State<'_, AppState>) {
-    state.download_cancelled.store(true, Ordering::Relaxed);
+    state.cancel_all_downloads();
 }
 
 #[tauri::command]

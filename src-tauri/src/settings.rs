@@ -126,10 +126,8 @@ impl SettingsState {
     }
 
     pub fn save(&self, settings: AppSettings) -> anyhow::Result<()> {
-        if let Some(parent) = self.path.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
-        std::fs::write(&self.path, serde_json::to_string_pretty(&settings)?)?;
+        // 原子寫入：寫到一半被砍掉不會留下半截設定檔（下次啟動會整份被判壞檔）
+        crate::utils::jsonfile::write_json_atomic(&self.path, &settings)?;
         *self.inner.lock().unwrap() = settings;
         Ok(())
     }

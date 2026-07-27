@@ -11,6 +11,7 @@ use crate::{db::init_db, state::AppState};
 pub mod commands;
 pub mod db;
 pub mod error;
+pub mod dl;
 pub mod download_core;
 pub mod http_dl;
 pub mod jin;

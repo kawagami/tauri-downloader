@@ -1,8 +1,4 @@
 use std::fmt;
-use std::path::PathBuf;
-use std::sync::{atomic::AtomicBool, Arc};
-
-use crate::utils::ratelimit::RateLimiter;
 
 use serde::{Deserialize, Serialize};
 use tauri::AppHandle;
@@ -86,45 +82,15 @@ impl Site {
         }
     }
 
-    pub async fn download(
+    /// 從作品頁解析出真正的檔案下載連結。
+    /// 實際下載交給共用引擎（crate::dl），provider 只負責「連結在哪」。
+    pub async fn resolve_file_url(
         &self,
-        client: &reqwest::Client,
         app_handle: &AppHandle,
-        source_url: String,
-        cached_file_url: String,
-        save_path: PathBuf,
-        cancelled: Arc<AtomicBool>,
-        limiter: Arc<RateLimiter>,
-    ) -> Result<(), DownloadError> {
+        source_url: &str,
+    ) -> Result<String, DownloadError> {
         match self {
-            Site::Wnacg => {
-                let had_cache = !cached_file_url.is_empty();
-                let file_url = if had_cache {
-                    cached_file_url
-                } else {
-                    wnacg::get_file_url(app_handle, &source_url).await?
-                };
-                let result = wnacg::download(
-                    client,
-                    app_handle,
-                    source_url.clone(),
-                    file_url,
-                    save_path.clone(),
-                    cancelled.clone(),
-                    limiter.clone(),
-                )
-                .await;
-
-                // 快取的 file_url 可能過期：404 時重抓最新連結再試一次，
-                // 重抓本身 404（下載頁已消失）才回傳 NotFound
-                if had_cache && matches!(&result, Err(DownloadError::NotFound)) {
-                    tracing::info!("快取 file_url 失效，重新抓取: {}", source_url);
-                    let fresh_url = wnacg::get_file_url(app_handle, &source_url).await?;
-                    return wnacg::download(client, app_handle, source_url, fresh_url, save_path, cancelled, limiter)
-                        .await;
-                }
-                result
-            }
+            Site::Wnacg => wnacg::get_file_url(app_handle, source_url).await,
             Site::NHentai => Err(DownloadError::Other("NHentai 下載尚未實作".to_string())),
         }
     }
