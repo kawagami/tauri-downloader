@@ -189,19 +189,17 @@ pub async fn run(
         for s in job.segments.lock().unwrap().iter() {
             s.written.store(0, Ordering::Relaxed);
         }
-        // .part 要清空重配置:total 未知時完整性檢查不會跑,
-        // 上次殘留的尾巴資料會混進最終檔
-        let file = tokio::fs::OpenOptions::new()
+        // .part 要清空重來:total 未知時完整性檢查不會跑,
+        // 上次殘留的尾巴資料會混進最終檔。
+        // 不預配置大小：走到這裡一定是單段（分段的前提就是支援 Range），
+        // 循序寫不需要，預配置還會毀掉「長度 = 進度」的續傳依據。
+        tokio::fs::OpenOptions::new()
             .create(true)
             .write(true)
             .truncate(true)
             .open(job.part_path())
             .await
             .map_err(EngineError::io)?;
-        let total = job.total_bytes.load(Ordering::Relaxed);
-        if total > 0 {
-            file.set_len(total).await.map_err(EngineError::io)?;
-        }
     }
 
     if stop.load(Ordering::Relaxed) {
@@ -271,6 +269,25 @@ pub fn is_stopped(stop: &Arc<AtomicBool>) -> bool {
     stop.load(Ordering::Relaxed)
 }
 
+/// 單段模式的免持久化續傳：`.part` 現在多長就從那裡接（長度本身就是進度）。
+/// 回 0 表示從頭來。
+///
+/// 幾個必要條件：
+/// - 伺服器支援 Range 且知道總大小，否則接不回正確位置
+/// - **不能是分段模式**：分段會把 `.part` 預配置成完整大小，長度就不再等於進度
+/// - `part_len >= total` 一律不信：正常的完整檔早該被 rename 成正式檔名，
+///   還留著多半是舊版預配置留下的空殼（後半段全是 0）。信了它就會直接
+///   「跳過下載 → 完整性檢查通過 → rename」，交出一個大小正確但內容壞掉的檔案。
+fn resume_offset(cfg: &JobConfig, ranged: bool, total: u64, split: bool, part_len: u64) -> u64 {
+    if !cfg.resume_from_part_len || !ranged || split || total == 0 {
+        return 0;
+    }
+    if part_len >= total {
+        return 0;
+    }
+    part_len
+}
+
 /// 首次請求:確認狀態碼、取檔名(Content-Disposition)、總大小與 Range
 /// 支援度,然後預配置 `.part` 檔並切段。
 async fn probe_and_prepare(
@@ -320,18 +337,14 @@ async fn probe_and_prepare(
         .map_err(EngineError::io)?;
     let part_path = job.part_path();
 
-    // 單段模式的免持久化續傳：`.part` 現在多長就從那裡接。
-    // 需要伺服器支援 Range 且知道總大小，否則沒辦法確認接得對。
-    let resume_from = if job.cfg.resume_from_part_len && ranged && total > 0 {
-        tokio::fs::metadata(&part_path)
-            .await
-            .map(|m| m.len().min(total))
-            .unwrap_or(0)
-    } else {
-        0
-    };
-
     let split = job.cfg.max_segments > 1 && ranged && total >= job.cfg.min_split_bytes;
+
+    let part_len = tokio::fs::metadata(&part_path)
+        .await
+        .map(|m| m.len())
+        .unwrap_or(0);
+    let resume_from = resume_offset(&job.cfg, ranged, total, split, part_len);
+
     let segments = if split {
         let n = job.cfg.max_segments;
         let base = total / n;
@@ -350,17 +363,16 @@ async fn probe_and_prepare(
         }]
     };
 
-    if resume_from > 0 && !split {
+    if resume_from > 0 {
         // 續傳：不能 truncate，既有內容就是進度本身
         tracing::info!("續傳 {:?}：從 {} bytes 接續", part_path, resume_from);
-        let file = tokio::fs::OpenOptions::new()
+        tokio::fs::OpenOptions::new()
             .create(true)
             .write(true)
             .truncate(false) // 刻意不清空：既有內容就是續傳進度本身
             .open(&part_path)
             .await
             .map_err(EngineError::io)?;
-        file.set_len(total).await.map_err(EngineError::io)?;
     } else {
         let file = tokio::fs::OpenOptions::new()
             .create(true)
@@ -369,7 +381,9 @@ async fn probe_and_prepare(
             .open(&part_path)
             .await
             .map_err(EngineError::io)?;
-        if total > 0 {
+        // 只有分段模式需要預配置整個檔案大小（各段 seek 到自己的偏移寫）。
+        // 單段是循序 append，預配置反而會毀掉「.part 長度 = 已下載量」這個續傳依據。
+        if split && total > 0 {
             file.set_len(total).await.map_err(EngineError::io)?;
         }
     }
@@ -552,6 +566,53 @@ mod tests {
         };
         assert_eq!(job(".part").part_path(), PathBuf::from("/dl/a.zip.part"));
         assert_eq!(job(".7.part").part_path(), PathBuf::from("/dl/a.zip.7.part"));
+    }
+
+    fn web_cfg() -> JobConfig {
+        JobConfig {
+            max_segments: 1,
+            min_split_bytes: 0,
+            rename_from_headers: false,
+            part_suffix: ".part".into(),
+            resume_from_part_len: true,
+        }
+    }
+
+    /// 正常續傳：`.part` 有一半就從一半接
+    #[test]
+    fn resumes_from_part_length() {
+        assert_eq!(resume_offset(&web_cfg(), true, 1000, false, 400), 400);
+    }
+
+    /// 「暫停後再繼續變成完成」的成因：`.part` 被預配置成完整大小，
+    /// 長度不再代表進度。長度 >= total 一律當作不可信、從頭來，
+    /// 否則會跳過下載直接 rename，交出一個後半段全是 0 的壞檔。
+    #[test]
+    fn preallocated_part_is_not_trusted_as_progress() {
+        assert_eq!(resume_offset(&web_cfg(), true, 1000, false, 1000), 0);
+        assert_eq!(resume_offset(&web_cfg(), true, 1000, false, 4096), 0);
+    }
+
+    /// 分段模式的 `.part` 一定是預配置過的，長度絕不能拿來當進度
+    /// （分段的續傳偏移由呼叫端持久化）
+    #[test]
+    fn split_mode_never_resumes_from_length() {
+        assert_eq!(resume_offset(&web_cfg(), true, 1000, true, 400), 0);
+    }
+
+    /// 沒有 Range 支援或不知道總大小就接不回正確位置
+    #[test]
+    fn resume_needs_range_and_known_total() {
+        assert_eq!(resume_offset(&web_cfg(), false, 1000, false, 400), 0);
+        assert_eq!(resume_offset(&web_cfg(), true, 0, false, 400), 0);
+    }
+
+    /// 直鏈那邊靠 persisted segments，不吃這條路
+    #[test]
+    fn disabled_by_config() {
+        let mut cfg = web_cfg();
+        cfg.resume_from_part_len = false;
+        assert_eq!(resume_offset(&cfg, true, 1000, false, 400), 0);
     }
 
     /// 404/410 都要歸到 NotFound（web 靠這個標 not_found）、401/403 歸 Auth
