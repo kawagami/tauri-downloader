@@ -10,6 +10,8 @@ import { formatBytes, formatEta, formatSpeed } from "../../lib/format";
 
 interface Props {
   t: HttpTaskItem;
+  /** 重複加入時 highlight 既有任務 */
+  highlighted: boolean;
   onActionError: (msg: string) => void;
 }
 
@@ -39,7 +41,7 @@ function badgeClass(t: HttpTaskItem): string {
   }
 }
 
-export const HttpRow = React.memo(function HttpRow({ t, onActionError }: Props) {
+export const HttpRow = React.memo(function HttpRow({ t, highlighted, onActionError }: Props) {
   async function run(action: () => Promise<void>) {
     try {
       await action();
@@ -67,7 +69,10 @@ export const HttpRow = React.memo(function HttpRow({ t, onActionError }: Props) 
   }
 
   return (
-    <div id={`http-row-${t.id}`} className={`torrent-row ${t.error ? "has-error" : ""}`}>
+    <div
+      id={`http-row-${t.id}`}
+      className={`torrent-row ${t.error ? "has-error" : ""} ${highlighted ? "highlighted" : ""}`}
+    >
       <div className="row-main">
         <div className="row-title">
           <span className="name">{t.name}</span>

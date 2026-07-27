@@ -140,6 +140,10 @@ pub fn start_clipboard_monitor(app_handle: AppHandle, running: Arc<AtomicBool>) 
                                             tracing::error!("Fetch Error: {}", e);
                                             // 抓取失敗，移出節流名單讓使用者可立即重試
                                             recent_urls.lock().unwrap().remove(&url_to_fetch);
+                                            // 與 magnet-add-error 對稱：不通知的話使用者只會看到
+                                            // 「複製了但沒反應」，分不出是網路掛了、站台改版、
+                                            // 還是這個 provider 根本還沒實作（nhentai）
+                                            let _ = handle.emit("url-fetch-error", e);
                                         }
                                     }
                                 });

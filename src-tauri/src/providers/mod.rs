@@ -46,13 +46,20 @@ impl fmt::Display for Site {
     }
 }
 
+/// host 是否屬於這個站（裸域或任何子網域）。
+/// `from_url` 與各 provider 的 `validate` 共用同一份規則 —— 兩邊各寫一套的話
+/// 會出現「認得出站台、驗證卻拒絕」的靜默失敗（例：沒有 www 的 wnacg.com 連結）。
+pub(crate) fn host_matches(host: &str, domain: &str) -> bool {
+    host == domain || host.ends_with(&format!(".{domain}"))
+}
+
 impl Site {
     /// 根據 host 辨識屬於哪個網站
     pub fn from_url(url: &str) -> Result<Self, String> {
         let parsed = url::Url::parse(url).map_err(|_| "無效的 URL 格式".to_string())?;
         match parsed.host_str() {
-            Some(h) if h == "wnacg.com" || h.ends_with(".wnacg.com") => Ok(Site::Wnacg),
-            Some(h) if h == "nhentai.net" || h.ends_with(".nhentai.net") => Ok(Site::NHentai),
+            Some(h) if host_matches(h, wnacg::DOMAIN) => Ok(Site::Wnacg),
+            Some(h) if host_matches(h, nhentai::DOMAIN) => Ok(Site::NHentai),
             _ => Err("不支援的網站域名".to_string()),
         }
     }

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { addMagnet } from "../../lib/btApi";
 import { updateAppSettings } from "../../lib/settingsApi";
 import { pickDir } from "../../lib/pickDir";
+import { readClipboard } from "../../lib/clipboard";
 
 interface Props {
   defaultDir: string;
@@ -21,13 +22,10 @@ export function AddMagnetDialog({ defaultDir, onClose, onAdded, onDefaultDirSave
 
   // 剪貼簿是 magnet 連結就自動帶入
   useEffect(() => {
-    navigator.clipboard
-      ?.readText?.()
-      .then((text) => {
-        const t = text.trim();
-        if (t.startsWith("magnet:")) setLink((prev) => prev || t);
-      })
-      .catch(() => {});
+    readClipboard().then((text) => {
+      const t = text.trim();
+      if (t.startsWith("magnet:")) setLink((prev) => prev || t);
+    });
   }, []);
 
   async function pickFolder() {

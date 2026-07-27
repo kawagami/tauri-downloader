@@ -2,6 +2,9 @@ use regex::Regex;
 use std::sync::OnceLock;
 use url::Url;
 
+/// 站台主網域（`Site::from_url` 的辨識與這裡的驗證共用）
+pub const DOMAIN: &str = "nhentai.net";
+
 static RE_VALIDATE: OnceLock<Regex> = OnceLock::new();
 
 /// 驗證 nhentai URL 並回傳規範化的 URL 字串
@@ -15,8 +18,10 @@ pub fn validate(content: &str) -> Result<String, String> {
         return Err("必須使用 https 協定".to_string());
     }
 
-    if parsed_url.host_str() != Some("nhentai.net") {
-        return Err("域名必須為 nhentai.net".to_string());
+    // host 規則與 Site::from_url 共用：裸域與子網域都收（例如 www.nhentai.net）
+    let host = parsed_url.host_str().unwrap_or_default();
+    if !crate::providers::host_matches(host, DOMAIN) {
+        return Err(format!("域名必須為 {}（或其子網域）", DOMAIN));
     }
 
     // 3. 使用 Regex 驗證 Path 並提取 ID

@@ -16,9 +16,23 @@ interface Props {
 export function HttpView({ stats }: Props) {
   const [showAdd, setShowAdd] = useState(false);
   const [actionError, setActionError] = useAutoClearError();
+  const [highlightId, setHighlightId] = useState<number | null>(null);
 
   const tasks = stats?.tasks ?? [];
   const finished = tasks.filter((t) => t.state === "finished");
+
+  // 重複加入 → highlight 既有任務並捲過去（與 BtView 同行為）。
+  // 以前這個 callback 是空的，貼到已存在的連結就只是 dialog 關掉、毫無回饋。
+  function onAdded(existingId: number | null) {
+    if (existingId === null) return;
+    setHighlightId(existingId);
+    setTimeout(() => {
+      document
+        .getElementById(`http-row-${existingId}`)
+        ?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 50);
+    setTimeout(() => setHighlightId(null), 3000);
+  }
 
   async function clearFinished() {
     try {
@@ -48,13 +62,18 @@ export function HttpView({ stats }: Props) {
         ) : (
           <div className="torrent-list">
             {tasks.map((t) => (
-              <HttpRow key={t.id} t={t} onActionError={setActionError} />
+              <HttpRow
+                key={t.id}
+                t={t}
+                highlighted={highlightId === t.id}
+                onActionError={setActionError}
+              />
             ))}
           </div>
         )}
       </main>
 
-      {showAdd && <AddHttpDialog onClose={() => setShowAdd(false)} onAdded={() => {}} />}
+      {showAdd && <AddHttpDialog onClose={() => setShowAdd(false)} onAdded={onAdded} />}
     </>
   );
 }

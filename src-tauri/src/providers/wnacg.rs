@@ -14,6 +14,12 @@ use crate::utils::ratelimit::RateLimiter;
 use tauri::{AppHandle, Emitter, Manager};
 use url::Url;
 
+/// 站台主網域（`Site::from_url` 的辨識與這裡的驗證共用）
+pub const DOMAIN: &str = "wnacg.com";
+/// 規範化用的主機名：裸域與各子網域都收斂到這個，同一部作品才不會因為
+/// 有沒有 www（或帶 query）而在 DB 裡變成好幾筆。
+const CANONICAL_HOST: &str = "www.wnacg.com";
+
 static RE_VALIDATE: OnceLock<Regex> = OnceLock::new();
 
 fn select_first<'a>(document: &'a Html, selectors: &[&str]) -> Option<ElementRef<'a>> {
@@ -37,19 +43,26 @@ pub fn validate(content: &str) -> Result<String, String> {
         return Err("必須使用 https 協定".to_string());
     }
 
-    if parsed_url.host_str() != Some("www.wnacg.com") {
-        return Err("域名必須為 www.wnacg.com".to_string());
+    // host 規則與 Site::from_url 共用：裸域與子網域都收
+    let host = parsed_url.host_str().unwrap_or_default();
+    if !crate::providers::host_matches(host, DOMAIN) {
+        return Err(format!("域名必須為 {}（或其子網域）", DOMAIN));
     }
 
     // 3. 使用 Regex 驗證 Path 並提取 ID (兼顧檢查與提取)
     let re = RE_VALIDATE.get_or_init(|| Regex::new(r"^/photos-index-aid-(\d+)\.html$").unwrap());
 
-    if !re.is_match(parsed_url.path()) {
-        return Err("路徑格式錯誤，應為 /photos-index-aid-{ID}.html".to_string());
-    }
+    let id = re
+        .captures(parsed_url.path())
+        .map(|c| c[1].to_string())
+        .ok_or_else(|| "路徑格式錯誤，應為 /photos-index-aid-{ID}.html".to_string())?;
 
-    // 回傳規範化後的字串
-    Ok(parsed_url.to_string())
+    // 由 ID 重建規範化 URL：丟掉 query/fragment、主機統一，
+    // 同一部作品的各種寫法都收斂成同一個 DB 主鍵
+    Ok(format!(
+        "https://{}/photos-index-aid-{}.html",
+        CANONICAL_HOST, id
+    ))
 }
 
 /// 輔助用函數
@@ -334,4 +347,40 @@ pub async fn download(
         let _ = tokio::fs::remove_file(&part_path).await;
     }
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const CANONICAL: &str = "https://www.wnacg.com/photos-index-aid-123.html";
+
+    /// 各種寫法都要收斂成同一個規範化 URL —— DB 主鍵是 url，
+    /// 不收斂的話同一部作品會變成好幾筆
+    #[test]
+    fn canonicalizes_host_and_query() {
+        for input in [
+            CANONICAL,
+            "https://wnacg.com/photos-index-aid-123.html",
+            "https://m.wnacg.com/photos-index-aid-123.html",
+            "https://www.wnacg.com/photos-index-aid-123.html?from=list#top",
+        ] {
+            assert_eq!(validate(input).as_deref(), Ok(CANONICAL), "input={input}");
+        }
+    }
+
+    /// from_url 認得的 host，validate 就不能拒絕（以前無 www 會靜默失敗）
+    #[test]
+    fn accepts_every_host_from_url_accepts() {
+        let bare = "https://wnacg.com/photos-index-aid-123.html";
+        assert!(crate::providers::Site::from_url(bare).is_ok());
+        assert!(validate(bare).is_ok());
+    }
+
+    #[test]
+    fn rejects_wrong_scheme_host_and_path() {
+        assert!(validate("http://www.wnacg.com/photos-index-aid-123.html").is_err());
+        assert!(validate("https://evil-wnacg.com/photos-index-aid-123.html").is_err());
+        assert!(validate("https://www.wnacg.com/photos-slist-aid-123.html").is_err());
+    }
 }

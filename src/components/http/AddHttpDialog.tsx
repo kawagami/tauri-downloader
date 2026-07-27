@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { addHttpDownload } from "../../lib/httpApi";
 import { getAppSettings, updateAppSettings } from "../../lib/settingsApi";
 import { pickDir } from "../../lib/pickDir";
+import { readClipboard } from "../../lib/clipboard";
 
 interface Props {
   onClose: () => void;
@@ -27,13 +28,10 @@ export function AddHttpDialog({ onClose, onAdded }: Props) {
 
   // 剪貼簿是 http(s) 連結就自動帶入
   useEffect(() => {
-    navigator.clipboard
-      ?.readText?.()
-      .then((text) => {
-        const t = text.trim();
-        if (/^https?:\/\//i.test(t)) setLink((prev) => prev || t);
-      })
-      .catch(() => {});
+    readClipboard().then((text) => {
+      const t = text.trim();
+      if (/^https?:\/\//i.test(t)) setLink((prev) => prev || t);
+    });
   }, []);
 
   async function pickFolder() {

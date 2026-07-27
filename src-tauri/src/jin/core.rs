@@ -100,6 +100,16 @@ fn is_code_php(p: &Path) -> bool {
 /// UNC 一次 read_dir ~23ms，等於閒著的執行緒整段時間都在燒 CPU。
 const IDLE_POLL: Duration = Duration::from_micros(200);
 
+/// active 計數的 RAII 保護。worker 若在處理目錄途中 panic 而計數沒歸零，
+/// 其他執行緒會卡在「等 active == 0」的迴圈裡永遠出不來（整個 scope 一起 hang）。
+struct ActiveGuard<'a>(&'a AtomicUsize);
+
+impl Drop for ActiveGuard<'_> {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
 /// 共用佇列的並行目錄走訪 — WSL UNC 每個 read_dir 都是一次 9P round trip（371 個目錄
 /// 序列走要 1.7 秒），多條一起撈。用 `entry.file_type()` 而非 `path.is_dir()`：
 /// 前者讀目錄項目自帶的資訊，後者每個項目要再一次 stat。
@@ -131,6 +141,8 @@ fn walk_code_php_parallel(start: Vec<PathBuf>, threads: usize) -> Result<Vec<Str
                     std::thread::sleep(IDLE_POLL);
                     continue;
                 };
+                // 從這裡起不論怎麼離開（含 panic）計數都會歸零
+                let _active = ActiveGuard(&active);
 
                 match std::fs::read_dir(&dir) {
                     Ok(entries) => {
@@ -162,7 +174,6 @@ fn walk_code_php_parallel(start: Vec<PathBuf>, threads: usize) -> Result<Vec<Str
                         }
                     }
                 }
-                active.fetch_sub(1, Ordering::SeqCst);
             });
         }
     });

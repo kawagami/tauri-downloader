@@ -32,9 +32,9 @@ function initTheme(): Theme {
 
 function App() {
   const { tasks, addTask, removeTask, removeAllTasks, volume, setVolume, playDing } = useTaskManager();
-  const { monitorClipboard, setMonitorClipboard } = useClipboardMonitor(addTask, tasks);
-  // toast 佇列要先於 useUrlDrop 建立：拖曳的通知也推同一條佇列
+  // toast 佇列要先建立：剪貼簿/拖曳/BT/直鏈的通知全推同一條
   const { toasts, pushToast } = useToasts();
+  const { monitorClipboard, setMonitorClipboard } = useClipboardMonitor(addTask, tasks, pushToast);
   const { isDragging, onDragEnter, onDragOver, onDragLeave, onDrop } = useUrlDrop(addTask, pushToast, playDing);
   const {
     tasks: downloadTasks,
