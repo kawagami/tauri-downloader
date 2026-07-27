@@ -95,10 +95,12 @@ const SortableRow: React.FC<SortableRowProps> = ({ task, onRemoveTask, onDownloa
                                 <div className="progress-fill" style={{ width: `${task.progress ?? 0}%` }} />
                             </div>
                         )}
+                        {/* 速度/剩餘時間一律保留位置：以前是 `speed > 0 &&`，
+                            速度一歸零元素就 unmount，版面跟著上下跳 */}
                         <div className="progress-meta">
                             <div>{(task.progress ?? 0) < 0 ? "計算中" : `${(task.progress ?? 0).toFixed(1)}%`}</div>
-                            {task.speed != null && task.speed > 0 && <div>{formatSpeed(task.speed)}</div>}
-                            {task.timeRemaining != null && task.timeRemaining > 0 && <div>{formatDuration(task.timeRemaining)}</div>}
+                            <div>{formatSpeed(task.speed ?? 0)}</div>
+                            <div>{formatDuration(task.timeRemaining ?? -1)}</div>
                         </div>
                     </>
                 ) : task.status === "done" ? (
@@ -129,7 +131,8 @@ const SortableRow: React.FC<SortableRowProps> = ({ task, onRemoveTask, onDownloa
             </td>
             <td>
                 <div style={{ display: "flex", gap: 6 }}>
-                    {/* 下載中禁止刪除：任務移除後後端串流仍會繼續寫檔且無法單獨取消 */}
+                    {/* 下載中禁止刪除：後端取消旗標已是 per-task，但刪除這條路沒有接上
+                        「先取消該任務再刪」的呼叫，直接刪會讓串流繼續寫完才發現任務不見了 */}
                     <button
                         className="btn-sm btn-danger"
                         onClick={() => onRemoveTask(task.url)}
@@ -137,7 +140,8 @@ const SortableRow: React.FC<SortableRowProps> = ({ task, onRemoveTask, onDownloa
                     >
                         刪除
                     </button>
-                    {/* 批次進行中禁止單筆下載：並行下載共用全域取消旗標會互相干擾 */}
+                    {/* 批次進行中禁止單筆下載：取消旗標改 per-task 後併發本身已安全，
+                        擋的是批次進度計數與「停止下載」會一併取消手動那條的語意混淆 */}
                     <button
                         className="btn-sm btn-primary"
                         onClick={() => onDownload(task)}
