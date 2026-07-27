@@ -5,6 +5,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Mutex;
+use std::time::Duration;
 
 use anyhow::{bail, Result};
 
@@ -95,6 +96,10 @@ fn is_code_php(p: &Path) -> bool {
     name.starts_with("code.") && name.ends_with(".php")
 }
 
+/// 佇列空、但還有人在讀目錄時的等待間隔。原本用 `yield_now()` 空轉，
+/// UNC 一次 read_dir ~23ms，等於閒著的執行緒整段時間都在燒 CPU。
+const IDLE_POLL: Duration = Duration::from_micros(200);
+
 /// 共用佇列的並行目錄走訪 — WSL UNC 每個 read_dir 都是一次 9P round trip（371 個目錄
 /// 序列走要 1.7 秒），多條一起撈。用 `entry.file_type()` 而非 `path.is_dir()`：
 /// 前者讀目錄項目自帶的資訊，後者每個項目要再一次 stat。
@@ -107,17 +112,26 @@ fn walk_code_php_parallel(start: Vec<PathBuf>, threads: usize) -> Result<Vec<Str
     std::thread::scope(|s| {
         for _ in 0..threads {
             s.spawn(|| loop {
-                let dir = queue.lock().unwrap().pop();
+                // pop 與 active+1 必須在同一把鎖內：分開做的話，兩者之間別的執行緒
+                // 會看到「佇列空 && active == 0」而提早 break，最壞退化成單執行緒
+                // 把整棵樹跑完 —— 正是這段並行想解決的問題。
+                let dir = {
+                    let mut q = queue.lock().unwrap();
+                    let popped = q.pop();
+                    if popped.is_some() {
+                        active.fetch_add(1, Ordering::SeqCst);
+                    }
+                    popped
+                };
                 let Some(dir) = dir else {
                     // 佇列空但還有人在讀目錄 → 可能馬上有新子目錄進來
                     if active.load(Ordering::SeqCst) == 0 {
                         break;
                     }
-                    std::thread::yield_now();
+                    std::thread::sleep(IDLE_POLL);
                     continue;
                 };
 
-                active.fetch_add(1, Ordering::SeqCst);
                 match std::fs::read_dir(&dir) {
                     Ok(entries) => {
                         let mut subdirs = Vec::new();
@@ -253,7 +267,10 @@ pub fn build_new_content(
     Ok(result)
 }
 
-pub fn uncomment_content(content: &str, hall: &str, codes: &[String]) -> String {
+/// 解除註解。回 `None` 表示一個字都沒換到 —— 用的是「自己產生的區塊字串」做 exact
+/// replace，檔案裡的註解只要縮排/空白跟產生的不一樣就會全部落空。回傳原樣的話呼叫端
+/// 會照樣寫檔並回報「已解除註解」，使用者以為改好了其實沒有，所以這裡要能分辨。
+pub fn uncomment_content(content: &str, hall: &str, codes: &[String]) -> Option<String> {
     let (hall_block, correspond_block, type_block, code_block) = build_blocks(hall, codes);
     let mut result = content.to_string();
     // replace 同時涵蓋 Game+RebateGame（hall_block）與 GameCode+RebateGameCode（code_block）
@@ -261,7 +278,7 @@ pub fn uncomment_content(content: &str, hall: &str, codes: &[String]) -> String 
     result = result.replace(&comment_block(&correspond_block), &correspond_block);
     result = result.replace(&comment_block(&type_block), &type_block);
     result = result.replace(&comment_block(&code_block), &code_block);
-    result
+    (result != content).then_some(result)
 }
 
 /// 把使用者輸入的 hall + suffix 清單轉成完整 code（`HALL_SUFFIX`，全大寫）
@@ -294,9 +311,18 @@ mod tests {
         let codes = build_codes("BBB", &["e".into()]);
         let commented = build_new_content(SAMPLE, "BBB", &codes, true).unwrap();
         assert_eq!(detect_state(&commented, "BBB"), State::Commented);
-        let restored = uncomment_content(&commented, "BBB", &codes);
+        let restored = uncomment_content(&commented, "BBB", &codes).expect("應該有換到東西");
         assert_eq!(detect_state(&restored, "BBB"), State::Active);
         assert_eq!(restored, build_new_content(SAMPLE, "BBB", &codes, false).unwrap());
+    }
+
+    /// 註解格式對不上時要回 None，不能回原內容讓呼叫端誤報成功
+    #[test]
+    fn uncomment_returns_none_when_nothing_matches() {
+        let codes = build_codes("BBB", &["e".into()]);
+        // 縮排與產生的區塊不同 → exact replace 全落空
+        let odd = "<?php\n//   'BBB' => [\n//     'BBB_E',\n//   ],\n";
+        assert!(uncomment_content(odd, "BBB", &codes).is_none());
     }
 
     #[test]

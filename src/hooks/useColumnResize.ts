@@ -16,6 +16,11 @@ export function useColumnResize(storageKey: string, defaultWidths: number[]) {
 
     const [colWidths, setColWidths] = useState<number[]>(loadWidths);
     const dragging = useRef<{ colIndex: number; startX: number; startWidth: number } | null>(null);
+    // 拖曳期間的最新寬度，同步更新（不等 render）：
+    // mouseup 要拿得到最後一次 mousemove 的結果，而副作用（寫 localStorage）
+    // 不能塞在 setState updater 裡 —— StrictMode 會雙呼 updater
+    //（同 useDownloadTasks.reorderTasks 的理由）
+    const widthsRef = useRef(colWidths);
 
     const onMouseDown = useCallback((colIndex: number, e: React.MouseEvent) => {
         e.preventDefault();
@@ -28,19 +33,15 @@ export function useColumnResize(storageKey: string, defaultWidths: number[]) {
             const { colIndex, startX, startWidth } = dragging.current;
             const delta = e.clientX - startX;
             const newWidth = Math.max(50, startWidth - delta);
-            setColWidths(prev => {
-                const next = [...prev];
-                next[colIndex] = newWidth;
-                return next;
-            });
+            const next = [...widthsRef.current];
+            next[colIndex] = newWidth;
+            widthsRef.current = next;
+            setColWidths(next);
         };
         const onMouseUp = () => {
             if (!dragging.current) return;
             dragging.current = null;
-            setColWidths(prev => {
-                setJsonPref(storageKey, prev);
-                return prev;
-            });
+            setJsonPref(storageKey, widthsRef.current);
         };
         window.addEventListener("mousemove", onMouseMove);
         window.addEventListener("mouseup", onMouseUp);

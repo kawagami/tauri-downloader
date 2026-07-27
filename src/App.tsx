@@ -33,7 +33,9 @@ function initTheme(): Theme {
 function App() {
   const { tasks, addTask, removeTask, removeAllTasks, volume, setVolume, playDing } = useTaskManager();
   const { monitorClipboard, setMonitorClipboard } = useClipboardMonitor(addTask, tasks);
-  const { isDragging, dropError, onDragEnter, onDragOver, onDragLeave, onDrop } = useUrlDrop(addTask, playDing);
+  // toast 佇列要先於 useUrlDrop 建立：拖曳的通知也推同一條佇列
+  const { toasts, pushToast } = useToasts();
+  const { isDragging, onDragEnter, onDragOver, onDragLeave, onDrop } = useUrlDrop(addTask, pushToast, playDing);
   const {
     tasks: downloadTasks,
     handleDownload,
@@ -46,7 +48,6 @@ function App() {
   } = useDownloadTasks(tasks, removeTask);
 
   // BT / 直鏈 stats 訂閱掛 App 層，切分頁不中斷；兩者共用同一條 toast 佇列
-  const { toasts, pushToast } = useToasts();
   const { stats: btStats } = useTorrentStats(pushToast, playDing);
   const { stats: httpStats } = useHttpStats(pushToast);
 
@@ -104,7 +105,6 @@ function App() {
           <div className="drop-overlay-box">拖入連結即可新增任務</div>
         </div>
       )}
-      {dropError && <div className="drop-error">{dropError}</div>}
       <nav className="tab-bar">
         <button
           type="button"

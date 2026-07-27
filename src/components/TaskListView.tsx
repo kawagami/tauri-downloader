@@ -1,7 +1,7 @@
 // TaskListView.tsx
 
 import React from "react";
-import { revealItemInDir } from "@tauri-apps/plugin-opener";
+import { openUrl, revealItemInDir } from "@tauri-apps/plugin-opener";
 import {
     DndContext,
     closestCenter,
@@ -18,20 +18,16 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import { DownloadableTask } from "../types";
 import { useColumnResize } from "../hooks/useColumnResize";
-import { formatBytes, formatSpeed } from "../lib/format";
+import { formatBytes, formatDuration, formatSpeed } from "../lib/format";
 import { PREF_KEYS } from "../lib/uiPrefs";
-
-const formatTime = (secs: number) => {
-    if (!isFinite(secs) || secs <= 0) return "計算中";
-    if (secs < 60) return `${Math.ceil(secs)}s`;
-    return `${Math.floor(secs / 60)}m ${Math.ceil(secs % 60)}s`;
-};
 
 // file_size 為 -1 表示後端探測不到大小
 const formatSize = (bytes: number) => (bytes < 0 ? "未知" : formatBytes(bytes));
 
 const COL_NAMES = ["標題", "預覽圖", "新增時間", "大小", "進度", "操作"];
-const DEFAULT_WIDTHS = [300, 80, 140, 90, 120, 130];
+// [0] 是標題欄的佔位：它的 <col> 刻意不設寬度（自動填滿剩餘空間），
+// 也沒有拖曳把手，所以這個值永遠不會被用到，只是讓索引與 COL_NAMES 對齊。
+const DEFAULT_WIDTHS = [0, 80, 140, 90, 120, 130];
 
 interface SortableRowProps {
     task: DownloadableTask;
@@ -55,12 +51,16 @@ const SortableRow: React.FC<SortableRowProps> = ({ task, onRemoveTask, onDownloa
                 ⠿
             </td>
             <td style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {/* Tauri webview 不會把 target="_blank" 轉給系統瀏覽器（點了沒反應），
+                    走 opener plugin 開外部瀏覽器 */}
                 <a
                     href={task.url}
-                    target="_blank"
-                    rel="noreferrer"
                     className="task-title-link"
                     title={task.url}
+                    onClick={(e) => {
+                        e.preventDefault();
+                        openUrl(task.url).catch(() => {});
+                    }}
                 >
                     {task.title}
                 </a>
@@ -98,7 +98,7 @@ const SortableRow: React.FC<SortableRowProps> = ({ task, onRemoveTask, onDownloa
                         <div className="progress-meta">
                             <div>{(task.progress ?? 0) < 0 ? "計算中" : `${(task.progress ?? 0).toFixed(1)}%`}</div>
                             {task.speed != null && task.speed > 0 && <div>{formatSpeed(task.speed)}</div>}
-                            {task.timeRemaining != null && task.timeRemaining > 0 && <div>{formatTime(task.timeRemaining)}</div>}
+                            {task.timeRemaining != null && task.timeRemaining > 0 && <div>{formatDuration(task.timeRemaining)}</div>}
                         </div>
                     </>
                 ) : task.status === "done" ? (

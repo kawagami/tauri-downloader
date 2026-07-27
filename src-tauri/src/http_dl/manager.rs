@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use futures_util::StreamExt;
 use percent_encoding::percent_decode_str;
@@ -19,6 +20,28 @@ const SEGMENT_COUNT: u64 = 4;
 const MIN_SPLIT_BYTES: u64 = 8 * 1024 * 1024;
 /// Content-Length 未知時 segment.end 的哨兵值。
 const UNBOUNDED: u64 = u64::MAX;
+/// 刪檔前等 worker 收工的上限(比 READ_TIMEOUT 略長:最壞情況是卡在讀取逾時)。
+const WORKER_JOIN_TIMEOUT: Duration = Duration::from_secs(35);
+/// 刪檔重試次數/間隔 — 防毒軟體掃描中之類的短暫佔用。
+const DELETE_RETRIES: u32 = 5;
+const DELETE_RETRY_DELAY: Duration = Duration::from_millis(200);
+
+/// 刪檔並重試:檔案不存在視為成功,連續失敗只記日誌不吵使用者。
+async fn remove_file_retry(path: &Path) {
+    for attempt in 1..=DELETE_RETRIES {
+        match tokio::fs::remove_file(path).await {
+            Ok(()) => return,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return,
+            Err(e) => {
+                if attempt == DELETE_RETRIES {
+                    tracing::warn!("刪除檔案失敗 {:?}: {}", path, e);
+                    return;
+                }
+                tokio::time::sleep(DELETE_RETRY_DELAY).await;
+            }
+        }
+    }
+}
 
 #[derive(Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Debug)]
 #[serde(rename_all = "snake_case")]
@@ -49,6 +72,8 @@ pub struct HttpTask {
     pub retryable: AtomicBool,
     /// 本輪執行的停止旗標;暫停/刪除設為 true,resume 換新的一顆。
     stop: Mutex<Arc<AtomicBool>>,
+    /// 本輪 worker 的 handle;刪除檔案前要等它收工放掉 .part 的檔案 handle。
+    run_handle: Mutex<Option<tauri::async_runtime::JoinHandle<()>>>,
 }
 
 impl HttpTask {
@@ -168,10 +193,9 @@ pub struct HttpManager {
 
 impl HttpManager {
     pub fn load(state_path: PathBuf, limit_bps: u64) -> Arc<Self> {
-        let persisted: Vec<PersistedTask> = std::fs::read(&state_path)
-            .ok()
-            .and_then(|b| serde_json::from_slice(&b).ok())
-            .unwrap_or_default();
+        // 解析失敗會把壞檔改名保留 + 記日誌，不再靜默把整批任務清空
+        let persisted: Vec<PersistedTask> =
+            crate::utils::jsonfile::load_json(&state_path).unwrap_or_default();
 
         let next_id = persisted.iter().map(|t| t.id + 1).max().unwrap_or(1);
         let tasks = persisted
@@ -198,6 +222,7 @@ impl HttpManager {
                     error: Mutex::new(p.error),
                     retryable: AtomicBool::new(p.retryable),
                     stop: Mutex::new(Arc::new(AtomicBool::new(false))),
+                    run_handle: Mutex::new(None),
                 })
             })
             .collect::<Vec<Arc<HttpTask>>>();
@@ -267,6 +292,7 @@ impl HttpManager {
             error: Mutex::new(None),
             retryable: AtomicBool::new(false),
             stop: Mutex::new(Arc::new(AtomicBool::new(false))),
+            run_handle: Mutex::new(None),
         });
         self.tasks.lock().unwrap().push(task.clone());
         self.persist();
@@ -292,11 +318,26 @@ impl HttpManager {
             tasks.remove(pos)
         };
         task.signal_stop();
-        if delete_files {
-            let _ = std::fs::remove_file(task.part_path());
-            let _ = std::fs::remove_file(task.final_path());
-        }
         self.persist();
+        if !delete_files {
+            return;
+        }
+
+        // 不能立刻刪：worker 每收一個 chunk 才檢查 stop，此刻 .part 的檔案 handle
+        // 還開著,Windows 會回 sharing violation 而刪不掉(以前被 `let _ =` 吞掉,
+        // 結果勾了「刪除檔案」卻留下 .part)。等 worker 收工再刪,清單那邊已經移除,
+        // UI 不用等。
+        let handle = task.run_handle.lock().unwrap().take();
+        tauri::async_runtime::spawn(async move {
+            if let Some(h) = handle {
+                // 上限比 READ_TIMEOUT 略長:worker 最壞情況是卡在讀取逾時才收工
+                if tokio::time::timeout(WORKER_JOIN_TIMEOUT, h).await.is_err() {
+                    tracing::warn!("等待任務 {} 收工逾時，仍嘗試刪除檔案", task.id);
+                }
+            }
+            remove_file_retry(&task.part_path()).await;
+            remove_file_retry(&task.final_path()).await;
+        });
     }
 
     pub fn persist(&self) {
@@ -343,7 +384,9 @@ impl HttpManager {
         self.persist();
 
         let mgr = self.clone();
-        tauri::async_runtime::spawn(async move {
+        let worker_task = task.clone();
+        let handle = tauri::async_runtime::spawn(async move {
+            let task = worker_task;
             let result = mgr.run_task(&task, &stop).await;
             if stop.load(Ordering::Relaxed) {
                 // 暫停/刪除已由指令端處理狀態,這裡不能覆寫。
@@ -362,6 +405,9 @@ impl HttpManager {
             }
             mgr.persist();
         });
+        // 刪除任務時要等這條收工才動檔案（背景 task 可能已跑完，存進去也無妨：
+        // await 一個已結束的 handle 會立刻返回）
+        *task.run_handle.lock().unwrap() = Some(handle);
     }
 
     async fn run_task(&self, task: &Arc<HttpTask>, stop: &Arc<AtomicBool>) -> Result<(), TaskError> {
@@ -648,7 +694,7 @@ fn total_from_content_range(value: &str) -> Option<u64> {
 
 /// URL path 最後一段(去 query、percent-decode)當預設檔名。
 pub fn filename_from_url(url: &reqwest::Url) -> Option<String> {
-    let last = url.path_segments()?.filter(|s| !s.is_empty()).last()?;
+    let last = url.path_segments()?.rfind(|s| !s.is_empty())?;
     let decoded = percent_decode_str(last)
         .decode_utf8()
         .map(|s| s.into_owned())

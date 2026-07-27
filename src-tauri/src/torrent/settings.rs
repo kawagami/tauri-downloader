@@ -25,9 +25,6 @@ pub struct BtSettings {
 
 impl BtSettings {
     pub fn load(path: &Path) -> BtSettings {
-        std::fs::read_to_string(path)
-            .ok()
-            .and_then(|s| serde_json::from_str(&s).ok())
-            .unwrap_or_default()
+        crate::utils::jsonfile::load_json(path).unwrap_or_default()
     }
 }

@@ -14,6 +14,7 @@ pub mod error;
 pub mod download_core;
 pub mod http_dl;
 pub mod jin;
+pub mod logging;
 pub mod monitor;
 pub mod providers;
 pub mod settings;
@@ -32,6 +33,10 @@ pub fn run() {
         .setup(move |app| {
             let app_data_dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&app_data_dir)?;
+
+            // 最先做：之後每一步的 tracing 訊息才有地方落
+            logging::init(&app_data_dir);
+            tracing::info!("app 啟動，app_data_dir = {:?}", app_data_dir);
 
             // 統一設定：後端啟動自己 load 並套用 runtime 旗標，不靠前端補推
             let settings_state = settings::SettingsState::load(&app_data_dir);

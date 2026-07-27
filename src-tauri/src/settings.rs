@@ -94,20 +94,27 @@ pub struct SettingsState {
 }
 
 impl SettingsState {
-    /// 載入 app_settings.json（含舊欄位遷移）；檔案不存在時從舊 bt_settings.json 遷移 bt 區塊
+    /// 載入 app_settings.json（含舊欄位遷移）；檔案不存在時從舊 bt_settings.json 遷移 bt 區塊。
+    /// 解析失敗不靜默吞掉：壞檔改名保留 + 記日誌（見 utils::jsonfile），再走預設值。
+    fn read_file(path: &Path) -> Option<AppSettings> {
+        let mut value: serde_json::Value = crate::utils::jsonfile::load_json(path)?;
+        migrate_legacy(&mut value);
+        match serde_json::from_value::<AppSettings>(value) {
+            Ok(s) => Some(s),
+            // JSON 本身合法但欄位對不上（型別改過、手改打錯）—— 同樣要留副本
+            Err(e) => {
+                crate::utils::jsonfile::backup_bad_file(path, &e.to_string());
+                None
+            }
+        }
+    }
+
     pub fn load(app_data_dir: &Path) -> Self {
         let path = app_data_dir.join("app_settings.json");
-        let settings = std::fs::read_to_string(&path)
-            .ok()
-            .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
-            .and_then(|mut v| {
-                migrate_legacy(&mut v);
-                serde_json::from_value::<AppSettings>(v).ok()
-            })
-            .unwrap_or_else(|| AppSettings {
-                bt: BtSettings::load(&app_data_dir.join("bt_settings.json")),
-                ..Default::default()
-            });
+        let settings = Self::read_file(&path).unwrap_or_else(|| AppSettings {
+            bt: BtSettings::load(&app_data_dir.join("bt_settings.json")),
+            ..Default::default()
+        });
         Self {
             inner: Mutex::new(settings),
             path,

@@ -121,8 +121,17 @@ fn plan_files(
                         if should_comment {
                             ("skip", "維持註解狀態".to_string(), None)
                         } else {
-                            let c = uncomment_content(&content, hall, codes);
-                            ("uncomment", "解除註解".to_string(), Some(c))
+                            match uncomment_content(&content, hall, codes) {
+                                Some(c) => ("uncomment", "解除註解".to_string(), Some(c)),
+                                // 註解在，但格式與產生的區塊對不上 → 寫回去等於沒改，
+                                // 不能報成功，讓使用者知道這幾個檔要手動處理
+                                None => (
+                                    "error",
+                                    "偵測到註解狀態，但註解格式與產生的區塊不一致，無法自動解除（請手動處理）"
+                                        .to_string(),
+                                    None,
+                                ),
+                            }
                         }
                     }
                     FileState::Missing => {

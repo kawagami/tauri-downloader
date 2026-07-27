@@ -2,8 +2,6 @@ use crate::db;
 use crate::providers::Site;
 use crate::state::AppState;
 use clipboard::{ClipboardContext, ClipboardProvider};
-use regex::Regex;
-use sanitize_filename::sanitize;
 use std::collections::HashMap;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -115,7 +113,8 @@ pub fn start_clipboard_monitor(app_handle: AppHandle, running: Arc<AtomicBool>) 
                                 tauri::async_runtime::spawn(async move {
                                     match site.fetch_details(&handle, &url_to_fetch).await {
                                         Ok(payload) => {
-                                            // 檢查下載目錄是否已有同名檔案（含 _N 後綴變體）
+                                            // 檢查下載目錄是否已有同名檔案（含 _N 後綴變體）；命名規則與
+                                            // get_unique_save_path 共用同一個函式，不再各寫一份。
                                             // 目錄來源與實際下載一致：AppSettings.web.default_dir（空 = 系統下載夾）
                                             let web_dir = crate::utils::fs::resolve_dir(
                                                 &handle
@@ -124,27 +123,8 @@ pub fn start_clipboard_monitor(app_handle: AppHandle, running: Arc<AtomicBool>) 
                                                     .web
                                                     .default_dir,
                                             );
-                                            let already_exists = std::fs::read_dir(web_dir)
-                                                .ok()
-                                                .map(|entries| {
-                                                    let prefix = sanitize(&payload.title);
-                                                    let exact = format!("{}.zip", prefix);
-                                                    // 精確比對 {prefix}_N.zip，避免誤擋標題為彼此前綴的不同作品
-                                                    let numbered = Regex::new(&format!(
-                                                        r"^{}_\d+\.zip$",
-                                                        regex::escape(&prefix)
-                                                    ))
-                                                    .ok();
-                                                    entries.filter_map(|e| e.ok()).any(|e| {
-                                                        let name = e.file_name();
-                                                        let name = name.to_string_lossy();
-                                                        name == exact.as_str()
-                                                            || numbered.as_ref().is_some_and(|re| re.is_match(&name))
-                                                    })
-                                                })
-                                                .unwrap_or(false);
-
-                                            if already_exists {
+                                            if crate::utils::fs::already_downloaded(&web_dir, &payload.title) {
+                                                tracing::info!("已下載過，略過: {}", payload.title);
                                                 return;
                                             }
 

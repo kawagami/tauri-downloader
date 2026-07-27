@@ -17,9 +17,9 @@ export function formatSpeed(bps: number): string {
   return `${formatBytes(bps)}/s`;
 }
 
-export function formatEta(downloadedBytes: number, totalBytes: number, bps: number): string {
-  if (bps <= 0 || totalBytes <= downloadedBytes) return "—";
-  const secs = (totalBytes - downloadedBytes) / bps;
+/** 秒數 → 人看的時間長度。後端算不出來時會給 -1（見 download_core.rs 的 UNKNOWN）。 */
+export function formatDuration(secs: number): string {
+  if (!Number.isFinite(secs) || secs <= 0) return "—";
   if (secs > 86400 * 30) return "∞";
   const h = Math.floor(secs / 3600);
   const m = Math.floor((secs % 3600) / 60);
@@ -27,4 +27,9 @@ export function formatEta(downloadedBytes: number, totalBytes: number, bps: numb
   if (h > 0) return `${h}h ${m}m`;
   if (m > 0) return `${m}m ${s}s`;
   return `${s}s`;
+}
+
+export function formatEta(downloadedBytes: number, totalBytes: number, bps: number): string {
+  if (bps <= 0 || totalBytes <= downloadedBytes) return "—";
+  return formatDuration((totalBytes - downloadedBytes) / bps);
 }

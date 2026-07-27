@@ -247,12 +247,15 @@ pub async fn download(
 
     let total_size = resp.content_length().unwrap_or(0);
 
-    // 串流寫檔包進 async block：任何失敗（含取消）統一在外層刪除殘檔，
-    // 避免半截 .zip 留在下載目錄被 monitor 的存在檢查誤判
+    // 先寫 `.part`，成功才 rename 成正式檔名：
+    // 中途失敗會在外層刪殘檔，但 app 被殺／斷電時刪不到 —— 若直接寫 .zip，
+    // 半截檔會讓 monitor 的「已下載過」檢查永遠略過這個 URL（且不會有任何提示）。
+    let part_path = crate::utils::fs::part_path(&save_path);
+
     let result: Result<(), DownloadError> = async {
         // tokio::fs 非阻塞寫檔：同步 I/O 會卡住 async runtime 的 worker thread，
         // 慢碟時拖累同 runtime 上的 BT stats / 直鏈下載 / IPC
-        let mut file = tokio::fs::File::create(&save_path).await?;
+        let mut file = tokio::fs::File::create(&part_path).await?;
         let mut downloaded: u64 = 0;
         let mut stream = resp.bytes_stream();
         let mut manager = DownloadManager::new();
@@ -297,6 +300,17 @@ pub async fn download(
         }
 
         file.flush().await?;
+        drop(file); // Windows 上 handle 還開著不能 rename
+
+        // 完整位元組數對得上才算完成：stream 提前斷線不會回 Err，
+        // 半截檔不能被 rename 成正式檔名（否則同樣會誤導 monitor）
+        if total_size > 0 && downloaded < total_size {
+            return Err(DownloadError::Other(format!(
+                "下載不完整（{}/{} bytes），可重試",
+                downloaded, total_size
+            )));
+        }
+        tokio::fs::rename(&part_path, &save_path).await?;
 
         // 下載完成後補發最終進度（確保前端顯示 100%）
         let metrics = manager.calculate_metrics(downloaded, total_size);
@@ -317,7 +331,7 @@ pub async fn download(
     .await;
 
     if result.is_err() {
-        let _ = std::fs::remove_file(&save_path);
+        let _ = tokio::fs::remove_file(&part_path).await;
     }
     result
 }
