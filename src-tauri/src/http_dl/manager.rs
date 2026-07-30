@@ -23,6 +23,31 @@ const WORKER_JOIN_TIMEOUT: Duration = Duration::from_secs(35);
 /// 刪檔重試次數/間隔 — 防毒軟體掃描中之類的短暫佔用。
 const DELETE_RETRIES: u32 = 5;
 const DELETE_RETRY_DELAY: Duration = Duration::from_millis(200);
+/// retryable 錯誤（斷線/逾時/5xx）的自動重試上限。
+/// 每次 spawn_run（新增、恢復、手動重試、啟動恢復）都重新計數。
+const MAX_AUTO_RETRIES: u32 = 3;
+/// 退避基準：第 n 次重試前等 BASE * 2^(n-1) → 3s / 6s / 12s。
+const RETRY_BASE_DELAY: Duration = Duration::from_secs(3);
+/// 退避等待期間檢查 stop 的粒度 —— 暫停/刪除不必等完整個退避。
+const RETRY_POLL: Duration = Duration::from_millis(200);
+
+fn retry_delay(attempt: u32) -> Duration {
+    RETRY_BASE_DELAY * 2u32.pow(attempt.saturating_sub(1))
+}
+
+/// 退避等待；期間使用者按了暫停/刪除就提前回 false。
+async fn sleep_unless_stopped(total: Duration, stop: &Arc<AtomicBool>) -> bool {
+    let mut left = total;
+    while !left.is_zero() {
+        if stop.load(Ordering::Relaxed) {
+            return false;
+        }
+        let step = left.min(RETRY_POLL);
+        tokio::time::sleep(step).await;
+        left -= step;
+    }
+    !stop.load(Ordering::Relaxed)
+}
 
 /// 刪檔並重試:檔案不存在視為成功,連續失敗只記日誌不吵使用者。
 async fn remove_file_retry(path: &Path) {
@@ -336,20 +361,57 @@ impl HttpManager {
         let worker_task = task.clone();
         let handle = tauri::async_runtime::spawn(async move {
             let task = worker_task;
-            let result = dl::run(&mgr.client, &task.job, &stop, mgr.limiter.clone()).await;
-            if dl::is_stopped(&stop) {
-                // 暫停/刪除已由指令端處理狀態,這裡不能覆寫。
-                return;
-            }
-            match result {
-                Ok(_) => {
-                    *task.status.lock().unwrap() = HttpStatus::Finished;
-                    *task.error.lock().unwrap() = None;
+            // retryable 失敗自動重跑：斷線/逾時/5xx 多半幾秒後就恢復，
+            // 沒必要停在 Error 等使用者回來按重試。`.part` 與 segments 都留著，
+            // 重跑是從斷點接續、不是重下。Auth/404 這類 retryable=false 不重試。
+            let mut attempt: u32 = 0;
+            loop {
+                let result = dl::run(&mgr.client, &task.job, &stop, mgr.limiter.clone()).await;
+                if dl::is_stopped(&stop) {
+                    // 暫停/刪除已由指令端處理狀態,這裡不能覆寫。
+                    return;
                 }
-                Err(e) => {
-                    *task.status.lock().unwrap() = HttpStatus::Error;
-                    *task.error.lock().unwrap() = Some(e.message);
-                    task.retryable.store(e.retryable, Ordering::Relaxed);
+                match result {
+                    Ok(_) => {
+                        *task.status.lock().unwrap() = HttpStatus::Finished;
+                        *task.error.lock().unwrap() = None;
+                        break;
+                    }
+                    Err(e) if e.retryable && attempt < MAX_AUTO_RETRIES => {
+                        attempt += 1;
+                        let delay = retry_delay(attempt);
+                        tracing::warn!(
+                            "直鏈任務 {} 失敗（{}），{}s 後自動重試 {}/{}",
+                            task.id,
+                            e.message,
+                            delay.as_secs(),
+                            attempt,
+                            MAX_AUTO_RETRIES
+                        );
+                        // 狀態留 Running：任務還沒放棄，UI 顯示錯誤訊息 + 重試進度即可
+                        *task.error.lock().unwrap() = Some(format!(
+                            "{}（{} 秒後自動重試 {}/{}）",
+                            e.message,
+                            delay.as_secs(),
+                            attempt,
+                            MAX_AUTO_RETRIES
+                        ));
+                        mgr.persist();
+                        if !sleep_unless_stopped(delay, &stop).await {
+                            return;
+                        }
+                        *task.error.lock().unwrap() = None;
+                    }
+                    Err(e) => {
+                        *task.status.lock().unwrap() = HttpStatus::Error;
+                        *task.error.lock().unwrap() = Some(if attempt > 0 {
+                            format!("{}（已自動重試 {} 次）", e.message, attempt)
+                        } else {
+                            e.message
+                        });
+                        task.retryable.store(e.retryable, Ordering::Relaxed);
+                        break;
+                    }
                 }
             }
             mgr.persist();
@@ -379,6 +441,14 @@ mod tests {
     fn filename_from_url_strips_query() {
         let url = reqwest::Url::parse("https://example.com/files/movie.mkv?token=secret").unwrap();
         assert_eq!(filename_from_url(&url), Some("movie.mkv".to_string()));
+    }
+
+    /// 自動重試退避：3s / 6s / 12s，上限三次
+    #[test]
+    fn retry_delay_backs_off() {
+        assert_eq!(retry_delay(1), Duration::from_secs(3));
+        assert_eq!(retry_delay(2), Duration::from_secs(6));
+        assert_eq!(retry_delay(MAX_AUTO_RETRIES), Duration::from_secs(12));
     }
 
     /// `.part` 要摻 task id，不同任務同檔名才不會互寫
