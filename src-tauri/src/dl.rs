@@ -14,6 +14,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use futures_util::StreamExt;
 use percent_encoding::percent_decode_str;
@@ -26,6 +27,78 @@ use crate::utils::ratelimit::RateLimiter;
 
 /// Content-Length 未知時 segment.end 的哨兵值。
 pub const UNBOUNDED: u64 = u64::MAX;
+
+// ---- 連線回收 / 分段看門狗 ----
+//
+// 大檔下載到一半掉速、手動暫停再恢復就回滿：長壽連線被伺服器配額型節流，
+// 或遇丟包後擁塞窗口爬不回來。換一條新連線就好，所以引擎自己換，
+// 不必等使用者發現。**兩者都只在支援 Range 時啟用**（否則接不回原位）。
+
+/// 單一連線搬完這麼多 bytes 就主動換新的。
+const RECYCLE_BYTES: u64 = 512 * 1024 * 1024;
+/// 單一連線活這麼久就主動換新的。
+const RECYCLE_INTERVAL: Duration = Duration::from_secs(10 * 60);
+/// 看門狗取樣窗口。
+const WATCH_WINDOW: Duration = Duration::from_secs(5);
+/// 窗口速率低於「本連線學到的峰值 × 此比例」算退化。
+const DEGRADE_RATIO: f64 = 0.3;
+/// 連續幾個窗口退化才換連線（單一窗口抖動不算）。
+const DEGRADE_WINDOWS: u32 = 2;
+/// 看門狗換連線的次數上限 —— 整體網路真的變慢時不該無限重連。
+const MAX_WATCHDOG_RECONNECTS: u32 = 5;
+/// 換了連線卻一個 byte 都沒拿到，最多再試幾次（防伺服器立刻關連線導致空轉）。
+const MAX_IDLE_RECONNECTS: u32 = 3;
+const IDLE_RECONNECT_DELAY: Duration = Duration::from_secs(1);
+
+/// 換連線的原因（只影響計數與日誌）。
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+enum Recycle {
+    /// 到了 bytes/時間門檻，預防性換線
+    Threshold,
+    /// 看門狗判定速度退化
+    Degraded,
+    /// 伺服器提早關閉連線（段落還沒收完）
+    EarlyClose,
+}
+
+impl Recycle {
+    fn label(self) -> &'static str {
+        match self {
+            Recycle::Threshold => "連線回收門檻",
+            Recycle::Degraded => "速度退化",
+            Recycle::EarlyClose => "伺服器提早關閉連線",
+        }
+    }
+}
+
+/// 單條連線的結束原因。
+enum SegOutcome {
+    /// 這段的 bytes 都到位了
+    Complete,
+    /// 使用者暫停/刪除，或其他段失敗要求收工
+    Stopped,
+    Reconnect(Recycle),
+}
+
+/// 預防性換線判定（純函式，好測）。
+fn recycle_due(conn_bytes: u64, conn_age: Duration) -> bool {
+    conn_bytes >= RECYCLE_BYTES || conn_age >= RECYCLE_INTERVAL
+}
+
+/// 看門狗吃一個窗口的速率，回傳（新峰值, 新連續退化數, 是否該換線）。
+///
+/// 峰值是「這條連線自己」量到的最大值：換線後歸零重新學，
+/// 整體網路真的變慢時新峰值就是那個慢速度，不會拿舊峰值反覆誤判。
+fn watchdog_step(peak_bps: f64, degraded_windows: u32, window_bps: f64) -> (f64, u32, bool) {
+    if window_bps > peak_bps {
+        return (window_bps, 0, false);
+    }
+    if peak_bps > 0.0 && window_bps < peak_bps * DEGRADE_RATIO {
+        let n = degraded_windows + 1;
+        return (peak_bps, n, n >= DEGRADE_WINDOWS);
+    }
+    (peak_bps, 0, false)
+}
 
 /// 半開區間 [start, end)。written 為已寫入 bytes,由 worker 累加。
 pub struct Segment {
@@ -394,6 +467,9 @@ async fn probe_and_prepare(
 
 /// 單一分段:從 start+written 處發 Range 請求,串流寫入 `.part` 對應偏移。
 /// 整包資料不落記憶體,逐 chunk 寫盤。
+///
+/// 一個分段的生命週期裡可以換好幾條連線（回收門檻 / 看門狗 / 伺服器提早關線），
+/// 每次都從 `start + written` 接續 —— 位置完全由 `written` 決定，換線不丟進度。
 #[allow(clippy::too_many_arguments)]
 async fn download_segment(
     client: reqwest::Client,
@@ -407,62 +483,140 @@ async fn download_segment(
     ranged: bool,
     limiter: Arc<RateLimiter>,
 ) -> Result<(), EngineError> {
-    let pos = start + written.load(Ordering::Relaxed);
-    let mut req = client.get(&url);
-    if ranged {
-        let range = if end == UNBOUNDED {
-            format!("bytes={pos}-")
-        } else {
-            format!("bytes={pos}-{}", end - 1)
-        };
-        req = req.header(RANGE, range);
-    }
-    let resp = req.send().await.map_err(EngineError::net)?;
-    match resp.status() {
-        StatusCode::PARTIAL_CONTENT => {}
-        StatusCode::OK if !ranged || pos == 0 => {}
-        StatusCode::OK => {
-            // 要求 Range 卻回整檔 → 伺服器行為變了,續傳資料不可信。
-            return Err(EngineError {
-                message: "伺服器不再支援續傳,請刪除任務後重新加入".to_string(),
-                retryable: false,
-                kind: ErrorKind::Other,
-            });
-        }
-        status => return Err(map_status_error(status, resp).await),
-    }
+    let stopped = || stop.load(Ordering::Relaxed) || abort.load(Ordering::Relaxed);
+    let mut watchdog_used: u32 = 0;
+    let mut idle_used: u32 = 0;
 
-    let mut file = tokio::fs::OpenOptions::new()
-        .write(true)
-        .open(&part_path)
-        .await
-        .map_err(EngineError::io)?;
-    file.seek(std::io::SeekFrom::Start(pos))
-        .await
-        .map_err(EngineError::io)?;
-
-    let mut stream = resp.bytes_stream();
-    while let Some(chunk) = stream.next().await {
-        if stop.load(Ordering::Relaxed) || abort.load(Ordering::Relaxed) {
-            let _ = file.flush().await;
+    loop {
+        if stopped() {
             return Ok(());
         }
-        let chunk = chunk.map_err(EngineError::net)?;
-        file.write_all(&chunk).await.map_err(EngineError::io)?;
-        written.fetch_add(chunk.len() as u64, Ordering::Relaxed);
-        // 全域限速：多個分段共用同一顆桶，合計吞吐才是設定值
-        if !limiter
-            .acquire(chunk.len() as u64, || {
-                stop.load(Ordering::Relaxed) || abort.load(Ordering::Relaxed)
-            })
+        let pos = start + written.load(Ordering::Relaxed);
+        if end != UNBOUNDED && pos >= end {
+            return Ok(());
+        }
+
+        let mut req = client.get(&url);
+        if ranged {
+            let range = if end == UNBOUNDED {
+                format!("bytes={pos}-")
+            } else {
+                format!("bytes={pos}-{}", end - 1)
+            };
+            req = req.header(RANGE, range);
+        }
+        let resp = req.send().await.map_err(EngineError::net)?;
+        match resp.status() {
+            StatusCode::PARTIAL_CONTENT => {}
+            StatusCode::OK if !ranged || pos == 0 => {}
+            StatusCode::OK => {
+                // 要求 Range 卻回整檔 → 伺服器行為變了,續傳資料不可信。
+                return Err(EngineError {
+                    message: "伺服器不再支援續傳,請刪除任務後重新加入".to_string(),
+                    retryable: false,
+                    kind: ErrorKind::Other,
+                });
+            }
+            status => return Err(map_status_error(status, resp).await),
+        }
+
+        let mut file = tokio::fs::OpenOptions::new()
+            .write(true)
+            .open(&part_path)
             .await
-        {
-            let _ = file.flush().await;
-            return Ok(());
+            .map_err(EngineError::io)?;
+        file.seek(std::io::SeekFrom::Start(pos))
+            .await
+            .map_err(EngineError::io)?;
+
+        let conn_start = Instant::now();
+        let mut conn_bytes: u64 = 0;
+        let mut peak_bps = 0.0f64;
+        let mut degraded_windows: u32 = 0;
+        let mut window_start = Instant::now();
+        let mut window_bytes: u64 = 0;
+
+        let mut stream = resp.bytes_stream();
+        let outcome = loop {
+            let Some(chunk) = stream.next().await else {
+                // 串流自然結束：該收的都收到就是完成，否則是伺服器提早關線。
+                // 不支援 Range 時接不回原位，只能交給 run() 的完整性檢查處理。
+                break if (end != UNBOUNDED && start + written.load(Ordering::Relaxed) >= end)
+                    || !ranged
+                {
+                    SegOutcome::Complete
+                } else {
+                    SegOutcome::Reconnect(Recycle::EarlyClose)
+                };
+            };
+            if stopped() {
+                break SegOutcome::Stopped;
+            }
+            let chunk = chunk.map_err(EngineError::net)?;
+            file.write_all(&chunk).await.map_err(EngineError::io)?;
+            let n = chunk.len() as u64;
+            written.fetch_add(n, Ordering::Relaxed);
+            conn_bytes += n;
+            window_bytes += n;
+            // 全域限速：多個分段共用同一顆桶，合計吞吐才是設定值
+            if !limiter.acquire(n, stopped).await {
+                break SegOutcome::Stopped;
+            }
+
+            if !ranged {
+                continue;
+            }
+            if recycle_due(conn_bytes, conn_start.elapsed()) {
+                break SegOutcome::Reconnect(Recycle::Threshold);
+            }
+            // 限速開著的時候不看門：低速是設定要的，不是退化
+            let elapsed = window_start.elapsed();
+            if limiter.limit().load(Ordering::Relaxed) == 0
+                && elapsed >= WATCH_WINDOW
+                && watchdog_used < MAX_WATCHDOG_RECONNECTS
+            {
+                let bps = window_bytes as f64 / elapsed.as_secs_f64();
+                window_start = Instant::now();
+                window_bytes = 0;
+                let (peak, degraded, recycle) = watchdog_step(peak_bps, degraded_windows, bps);
+                peak_bps = peak;
+                degraded_windows = degraded;
+                if recycle {
+                    break SegOutcome::Reconnect(Recycle::Degraded);
+                }
+            }
+        };
+        file.flush().await.map_err(EngineError::io)?;
+        drop(file);
+
+        let kind = match outcome {
+            SegOutcome::Complete | SegOutcome::Stopped => return Ok(()),
+            SegOutcome::Reconnect(kind) => kind,
+        };
+        if kind == Recycle::Degraded {
+            watchdog_used += 1;
+        }
+        tracing::info!(
+            "分段 @{} 換連線（{}）：本條連線搬了 {} bytes，已完成 {} bytes",
+            start,
+            kind.label(),
+            conn_bytes,
+            written.load(Ordering::Relaxed)
+        );
+        // 一個 byte 都沒拿到就換線，可能是伺服器直接關線 → 有限次數 + 間隔，別空轉
+        if conn_bytes == 0 {
+            idle_used += 1;
+            if idle_used > MAX_IDLE_RECONNECTS {
+                return Err(EngineError::other(
+                    format!("連線重建 {MAX_IDLE_RECONNECTS} 次仍無進度（{}）", kind.label()),
+                    true,
+                ));
+            }
+            tokio::time::sleep(IDLE_RECONNECT_DELAY).await;
+        } else {
+            idle_used = 0;
         }
     }
-    file.flush().await.map_err(EngineError::io)?;
-    Ok(())
 }
 
 /// `filename*=UTF-8''…`(RFC 5987)優先,退回 `filename="…"`。
@@ -613,6 +767,43 @@ mod tests {
         let mut cfg = web_cfg();
         cfg.resume_from_part_len = false;
         assert_eq!(resume_offset(&cfg, true, 1000, false, 400), 0);
+    }
+
+    /// 預防性換線：bytes 或時間任一到門檻就換
+    #[test]
+    fn recycle_triggers_on_bytes_or_age() {
+        assert!(!recycle_due(1024, Duration::from_secs(5)));
+        assert!(recycle_due(RECYCLE_BYTES, Duration::from_secs(5)));
+        assert!(recycle_due(1024, RECYCLE_INTERVAL));
+    }
+
+    /// 速度上升就更新峰值，退化計數歸零
+    #[test]
+    fn watchdog_learns_peak() {
+        let (peak, degraded, recycle) = watchdog_step(0.0, 0, 1_000_000.0);
+        assert_eq!(peak, 1_000_000.0);
+        assert_eq!(degraded, 0);
+        assert!(!recycle);
+    }
+
+    /// 連續兩個窗口掉到峰值三成以下才換線（單一窗口抖動不算）
+    #[test]
+    fn watchdog_needs_consecutive_degraded_windows() {
+        let (peak, degraded, recycle) = watchdog_step(1_000_000.0, 0, 100_000.0);
+        assert_eq!(peak, 1_000_000.0);
+        assert_eq!(degraded, 1);
+        assert!(!recycle, "第一個退化窗口不換線");
+        let (_, degraded, recycle) = watchdog_step(peak, degraded, 100_000.0);
+        assert_eq!(degraded, DEGRADE_WINDOWS);
+        assert!(recycle);
+    }
+
+    /// 小幅波動（掉到五成）不算退化，計數還要歸零
+    #[test]
+    fn watchdog_ignores_mild_dips() {
+        let (_, degraded, recycle) = watchdog_step(1_000_000.0, 1, 500_000.0);
+        assert_eq!(degraded, 0);
+        assert!(!recycle);
     }
 
     /// 404/410 都要歸到 NotFound（web 靠這個標 not_found）、401/403 歸 Auth
