@@ -1,3 +1,4 @@
+use crate::utils::lock::LockExt;
 use std::collections::HashMap;
 use std::time::Duration;
 
@@ -81,8 +82,7 @@ pub fn spawn_stats_task(app: AppHandle) {
 
             let pending: Vec<_> = state
                 .pending
-                .lock()
-                .unwrap()
+                .lock_safe()
                 .iter()
                 .map(|(key, p)| {
                     json!({

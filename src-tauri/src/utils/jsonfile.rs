@@ -32,17 +32,22 @@ pub fn backup_bad_file(path: &Path, reason: &str) {
 /// 先寫 `.tmp` 再 rename（同磁碟的 rename 是原子的）就不會有半截狀態：
 /// 要嘛是舊的完整內容，要嘛是新的完整內容。
 pub fn write_json_atomic<T: serde::Serialize>(path: &Path, value: &T) -> std::io::Result<()> {
+    let json = serde_json::to_string_pretty(value)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+    write_atomic(path, json.as_bytes())
+}
+
+/// 原子寫入任意 bytes。序列化與寫檔分開，呼叫端才有辦法先在 async 這邊
+/// 序列化好、再把真正的 IO 丟到 blocking 執行緒。
+pub fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    let json = serde_json::to_string_pretty(value)
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
-
     let mut tmp_name = path.file_name().unwrap_or_default().to_os_string();
     tmp_name.push(".tmp");
     let tmp = path.with_file_name(tmp_name);
 
-    std::fs::write(&tmp, json)?;
+    std::fs::write(&tmp, bytes)?;
     // Windows 的 rename 會覆蓋既有檔案（MOVEFILE_REPLACE_EXISTING）
     match std::fs::rename(&tmp, path) {
         Ok(()) => Ok(()),

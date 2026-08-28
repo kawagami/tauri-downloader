@@ -1,6 +1,6 @@
 // src/dl.rs
 // 共用下載引擎 —— 網站下載與直鏈下載共用同一套位元組搬運：
-// Range 探測、`.part` 預配置、分段並行、限速、完整性檢查、完成 rename。
+// Range 探測、`.part` 預配置、分段並行、work stealing、限速、完整性檢查、完成 rename。
 //
 // 引擎只管「把 bytes 搬到磁碟」；任務管理（狀態機、錯誤呈現、持久化、UI 事件）
 // 留在各自的呼叫端 —— 兩邊的任務模型差很多（web 有 DB/排序/縮圖，http 有 segments），
@@ -23,6 +23,7 @@ use reqwest::StatusCode;
 use tokio::io::{AsyncSeekExt, AsyncWriteExt};
 use tokio::task::JoinSet;
 
+use crate::utils::lock::LockExt;
 use crate::utils::ratelimit::RateLimiter;
 
 /// Content-Length 未知時 segment.end 的哨兵值。
@@ -32,7 +33,9 @@ pub const UNBOUNDED: u64 = u64::MAX;
 //
 // 大檔下載到一半掉速、手動暫停再恢復就回滿：長壽連線被伺服器配額型節流，
 // 或遇丟包後擁塞窗口爬不回來。換一條新連線就好，所以引擎自己換，
-// 不必等使用者發現。**兩者都只在支援 Range 時啟用**（否則接不回原位）。
+// 不必等使用者發現。**兩者都只在支援 Range 時啟用**（否則接不回原位），
+// 而且**限速開著時兩者都不做** —— 低速是設定要的，不是退化，
+// 換線只是多付一次握手成本。
 
 /// 單一連線搬完這麼多 bytes 就主動換新的。
 const RECYCLE_BYTES: u64 = 512 * 1024 * 1024;
@@ -50,10 +53,21 @@ const MAX_WATCHDOG_RECONNECTS: u32 = 5;
 const MAX_IDLE_RECONNECTS: u32 = 3;
 const IDLE_RECONNECT_DELAY: Duration = Duration::from_secs(1);
 
+// ---- work stealing ----
+//
+// 固定等分切段的老問題（尾段效應）：四段一起開跑，先跑完的段就閒置，
+// 最後幾 % 只剩最慢的那條連線在搬，速度階梯式下降。
+// 解法是讓跑完的 worker 去「偷」還沒搬完的段的後半段：donor 的 end 縮小、
+// 被偷走的區間變成一個新段。兩邊的位置都由 `written` 決定，所以偷完不丟進度；
+// 持久化格式（start/end/written 的陣列）也完全不用改，只是陣列會變長。
+
+/// 剩不到這麼多就不值得再切（多開一條連線的握手成本反而比較貴）。
+const MIN_STEAL_BYTES: u64 = 4 * 1024 * 1024;
+
 /// 換連線的原因（只影響計數與日誌）。
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 enum Recycle {
-    /// 到了 bytes/時間門檻，預防性換線
+    /// 到了 bytes/時間門檻，預防性換新
     Threshold,
     /// 看門狗判定速度退化
     Degraded,
@@ -100,11 +114,103 @@ fn watchdog_step(peak_bps: f64, degraded_windows: u32, window_bps: f64) -> (f64,
     (peak_bps, 0, false)
 }
 
-/// 半開區間 [start, end)。written 為已寫入 bytes,由 worker 累加。
+/// 半開區間 [start, end)。
+///
+/// `end` 是 atomic 而不是普通欄位：work stealing 會在下載途中把它縮小，
+/// 正在搬這一段的 worker 每個 chunk 都重讀一次，讀到縮小後的值就自己收工。
 pub struct Segment {
     pub start: u64,
-    pub end: u64,
-    pub written: Arc<AtomicU64>,
+    end: AtomicU64,
+    written: AtomicU64,
+    /// 目前有沒有 worker 在搬這一段（純 runtime 狀態，不持久化）
+    claimed: AtomicBool,
+}
+
+impl Segment {
+    pub fn new(start: u64, end: u64, written: u64) -> Arc<Segment> {
+        Arc::new(Segment {
+            start,
+            end: AtomicU64::new(end),
+            written: AtomicU64::new(written),
+            claimed: AtomicBool::new(false),
+        })
+    }
+
+    pub fn end(&self) -> u64 {
+        self.end.load(Ordering::Relaxed)
+    }
+
+    pub fn written(&self) -> u64 {
+        self.written.load(Ordering::Relaxed)
+    }
+
+    /// 這一段還差多少 bytes（end 未知時回 0 —— 沒有中點可以拿來切）
+    pub fn remaining(&self) -> u64 {
+        let end = self.end();
+        if end == UNBOUNDED {
+            return 0;
+        }
+        end.saturating_sub(self.start + self.written())
+    }
+
+    fn is_complete(&self) -> bool {
+        let end = self.end();
+        end != UNBOUNDED && self.start + self.written() >= end
+    }
+
+    /// 認領這一段；已被別人認領則回 false。
+    fn claim(&self) -> bool {
+        self.claimed
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .is_ok()
+    }
+
+    fn unclaim(&self) {
+        self.claimed.store(false, Ordering::Release);
+    }
+
+    fn reset_written(&self) {
+        self.written.store(0, Ordering::Relaxed);
+    }
+}
+
+/// 分段清單。worker 要能在跑動中新增段（work stealing），所以整個 Vec 共享。
+pub type Segments = Arc<Mutex<Vec<Arc<Segment>>>>;
+
+/// 找一份新工作給剛跑完的 worker：
+/// 1. 先撿沒人認領的既有段 —— 重啟續傳時 segments 可能多於 worker 數（上次偷過留下的），
+///    這些段沒人撿就永遠不會被搬完。
+/// 2. 沒有的話，從「剩最多」的那一段切一半搶過來。
+///
+/// 回 None 表示沒事可做，worker 收工。
+fn steal_work(segments: &Mutex<Vec<Arc<Segment>>>) -> Option<Arc<Segment>> {
+    let mut segs = segments.lock_safe();
+
+    // `claim()` 有副作用（成功即認領），find 會停在第一個成功的那個
+    if let Some(s) = segs.iter().find(|s| !s.is_complete() && s.claim()) {
+        return Some(s.clone());
+    }
+
+    let donor = segs.iter().max_by_key(|s| s.remaining())?.clone();
+    let end = donor.end();
+    let remaining = donor.remaining();
+    if end == UNBOUNDED || remaining < MIN_STEAL_BYTES {
+        return None;
+    }
+
+    let mid = end - remaining / 2;
+    donor.end.store(mid, Ordering::Relaxed);
+    // donor 可能在我們讀 end 到 store 之間又寫了一個 chunk，越過了 mid。
+    // 把 written 夾回新的段長：那一小段 bytes 由新段重下（同一個來源、內容一致），
+    // 不夾的話同一段進度會被兩個 Segment 各算一次，downloaded() 就會超過 total。
+    donor
+        .written
+        .fetch_min(mid.saturating_sub(donor.start), Ordering::Relaxed);
+
+    let new = Segment::new(mid, end, 0);
+    new.claim();
+    segs.push(new.clone());
+    Some(new)
 }
 
 /// 失敗分類 —— 呼叫端各自需要不同的分法：
@@ -191,13 +297,13 @@ async fn map_status_error(status: StatusCode, resp: reqwest::Response) -> Engine
 
 /// 兩個呼叫端的差異全部收在這裡。
 pub struct JobConfig {
-    /// 最多切幾段。>1 需要呼叫端自己持久化每段偏移，否則重啟接不回來。
+    /// 最多開幾條連線。>1 需要呼叫端自己持久化每段偏移，否則重啟接不回來。
     pub max_segments: u64,
     /// 小於此大小不分段（單一連線就夠快，切段只是多開連線）。
     pub min_split_bytes: u64,
     /// 首次回應的 Content-Disposition 是否可以覆蓋檔名。
     pub rename_from_headers: bool,
-    /// `.part` 檔名後綴（接在 file_name 後）。直鏈摻 task id 防同名任務互寫。
+    /// `.part` 檔名後綴（接在 file_name 後）。同名任務靠它區分，不然會互寫。
     pub part_suffix: String,
     /// 單段模式下，用既有 `.part` 的長度當續傳起點。
     /// 免持久化的續傳：檔案長度本身就是狀態（多段就不行，偏移得另外存）。
@@ -212,27 +318,22 @@ pub struct DownloadJob {
     /// 0 = 未知（伺服器沒給 Content-Length）
     pub total_bytes: AtomicU64,
     pub range_supported: AtomicBool,
-    pub segments: Mutex<Vec<Segment>>,
+    pub segments: Segments,
     pub cfg: JobConfig,
 }
 
 impl DownloadJob {
     pub fn downloaded(&self) -> u64 {
-        self.segments
-            .lock()
-            .unwrap()
-            .iter()
-            .map(|s| s.written.load(Ordering::Relaxed))
-            .sum()
+        self.segments.lock_safe().iter().map(|s| s.written()).sum()
     }
 
     pub fn part_path(&self) -> PathBuf {
-        let name = self.file_name.lock().unwrap().clone();
+        let name = self.file_name.lock_safe().clone();
         self.dest_dir.join(format!("{name}{}", self.cfg.part_suffix))
     }
 
     pub fn final_path(&self) -> PathBuf {
-        let name = self.file_name.lock().unwrap().clone();
+        let name = self.file_name.lock_safe().clone();
         self.dest_dir.join(name)
     }
 }
@@ -247,20 +348,21 @@ pub async fn run(
     stop: &Arc<AtomicBool>,
     limiter: Arc<RateLimiter>,
 ) -> Result<PathBuf, EngineError> {
-    let url = job.url.lock().unwrap().clone();
+    let url = job.url.lock_safe().clone();
 
     // 續傳前置檢查:.part 不見了就只能從頭來。
     if job.downloaded() > 0 && !job.part_path().exists() {
-        job.segments.lock().unwrap().clear();
+        job.segments.lock_safe().clear();
         job.total_bytes.store(0, Ordering::Relaxed);
     }
 
-    if job.segments.lock().unwrap().is_empty() {
+    let no_segments = job.segments.lock_safe().is_empty();
+    if no_segments {
         probe_and_prepare(client, job, &url).await?;
     } else if !job.range_supported.load(Ordering::Relaxed) {
         // 無 Range 支援的任務只能整檔重來。
-        for s in job.segments.lock().unwrap().iter() {
-            s.written.store(0, Ordering::Relaxed);
+        for s in job.segments.lock_safe().iter() {
+            s.reset_written();
         }
         // .part 要清空重來:total 未知時完整性檢查不會跑,
         // 上次殘留的尾巴資料會混進最終檔。
@@ -284,29 +386,44 @@ pub async fn run(
     // 任一段失敗時令其他段也停下,與使用者暫停分開計。
     let abort = Arc::new(AtomicBool::new(false));
 
+    let initial: Vec<Arc<Segment>> = job.segments.lock_safe().clone();
+    // 偷工作只在真的分段跑的任務上做：單段任務（小檔、無 Range、或網站下載那條
+    // 靠 `.part` 長度續傳的路）一旦被切成多段，長度就不再等於進度。
+    let steal_enabled = ranged && job.cfg.max_segments > 1 && initial.len() > 1;
+    let max_workers = job.cfg.max_segments.max(1) as usize;
+
+    // 上一輪（暫停前）留下的認領狀態要清掉，否則這輪誰都撿不到工作
+    for s in &initial {
+        s.unclaim();
+    }
+
     let mut set = JoinSet::new();
-    for seg in job.segments.lock().unwrap().iter() {
-        let written = seg.written.load(Ordering::Relaxed);
-        if seg.end != UNBOUNDED && seg.start + written >= seg.end {
+    for seg in &initial {
+        // 段數可能多於 worker 數（上次偷過）—— 剩下的留給先跑完的 worker 去撿
+        if set.len() >= max_workers {
+            break;
+        }
+        if seg.is_complete() || !seg.claim() {
             continue;
         }
-        set.spawn(download_segment(
+        set.spawn(segment_worker(
             client.clone(),
             url.clone(),
             part_path.clone(),
-            seg.start,
-            seg.end,
-            seg.written.clone(),
+            seg.clone(),
+            job.segments.clone(),
             stop.clone(),
             abort.clone(),
             ranged,
+            steal_enabled,
             limiter.clone(),
         ));
     }
 
     let mut first_err: Option<EngineError> = None;
     while let Some(res) = set.join_next().await {
-        let seg_result = res.unwrap_or_else(|e| Err(EngineError::other(format!("下載執行緒異常:{e}"), true)));
+        let seg_result =
+            res.unwrap_or_else(|e| Err(EngineError::other(format!("下載執行緒異常:{e}"), true)));
         if let Err(e) = seg_result {
             if first_err.is_none() {
                 first_err = Some(e);
@@ -326,13 +443,18 @@ pub async fn run(
     if total > 0 && job.downloaded() < total {
         return Err(EngineError::other("網路中斷,可重試(下載不完整)", true));
     }
+    if total == 0 {
+        // 沒有 Content-Length 就沒有東西可以比對，截斷的檔案看起來跟完整的一模一樣。
+        // 至少讓日誌留下痕跡，事後查得到「這個檔從來沒被驗證過」。
+        tracing::warn!("{:?}：伺服器未提供總大小，無法驗證下載完整性", part_path);
+    }
 
     let final_path = unique_path(&job.final_path());
     tokio::fs::rename(&part_path, &final_path)
         .await
         .map_err(EngineError::io)?;
     if let Some(name) = final_path.file_name() {
-        *job.file_name.lock().unwrap() = name.to_string_lossy().into_owned();
+        *job.file_name.lock_safe() = name.to_string_lossy().into_owned();
     }
     Ok(final_path)
 }
@@ -387,7 +509,7 @@ async fn probe_and_prepare(
         {
             let cleaned = crate::torrent::commands::sanitize_folder_name(&name);
             if !cleaned.is_empty() {
-                *job.file_name.lock().unwrap() = cleaned;
+                *job.file_name.lock_safe() = cleaned;
             }
         }
     }
@@ -418,22 +540,18 @@ async fn probe_and_prepare(
         .unwrap_or(0);
     let resume_from = resume_offset(&job.cfg, ranged, total, split, part_len);
 
-    let segments = if split {
+    let segments: Vec<Arc<Segment>> = if split {
         let n = job.cfg.max_segments;
         let base = total / n;
         (0..n)
-            .map(|i| Segment {
-                start: i * base,
-                end: if i == n - 1 { total } else { (i + 1) * base },
-                written: Arc::new(AtomicU64::new(0)),
-            })
+            .map(|i| Segment::new(i * base, if i == n - 1 { total } else { (i + 1) * base }, 0))
             .collect()
     } else {
-        vec![Segment {
-            start: 0,
-            end: if total > 0 { total } else { UNBOUNDED },
-            written: Arc::new(AtomicU64::new(resume_from)),
-        }]
+        vec![Segment::new(
+            0,
+            if total > 0 { total } else { UNBOUNDED },
+            resume_from,
+        )]
     };
 
     if resume_from > 0 {
@@ -461,8 +579,48 @@ async fn probe_and_prepare(
         }
     }
 
-    *job.segments.lock().unwrap() = segments;
+    *job.segments.lock_safe() = segments;
     Ok(())
+}
+
+/// 一條 worker 的一生：搬完手上這段就去偷下一段，偷不到才收工。
+/// 併發連線數等於 worker 數，不會因為偷工作而變多。
+#[allow(clippy::too_many_arguments)]
+async fn segment_worker(
+    client: reqwest::Client,
+    url: String,
+    part_path: PathBuf,
+    seg: Arc<Segment>,
+    segments: Segments,
+    stop: Arc<AtomicBool>,
+    abort: Arc<AtomicBool>,
+    ranged: bool,
+    steal_enabled: bool,
+    limiter: Arc<RateLimiter>,
+) -> Result<(), EngineError> {
+    let mut seg = seg;
+    loop {
+        download_segment(
+            &client, &url, &part_path, &seg, &stop, &abort, ranged, &limiter,
+        )
+        .await?;
+
+        if !steal_enabled || stop.load(Ordering::Relaxed) || abort.load(Ordering::Relaxed) {
+            return Ok(());
+        }
+        match steal_work(&segments) {
+            Some(next) => {
+                tracing::info!(
+                    "分段 @{} 收工，接手 [{}, {})",
+                    seg.start,
+                    next.start,
+                    next.end()
+                );
+                seg = next;
+            }
+            None => return Ok(()),
+        }
+    }
 }
 
 /// 單一分段:從 start+written 處發 Range 請求,串流寫入 `.part` 對應偏移。
@@ -470,18 +628,17 @@ async fn probe_and_prepare(
 ///
 /// 一個分段的生命週期裡可以換好幾條連線（回收門檻 / 看門狗 / 伺服器提早關線），
 /// 每次都從 `start + written` 接續 —— 位置完全由 `written` 決定，換線不丟進度。
+/// `end` 也是每個 chunk 重讀：別的 worker 可能剛把這一段的後半段偷走了。
 #[allow(clippy::too_many_arguments)]
 async fn download_segment(
-    client: reqwest::Client,
-    url: String,
-    part_path: PathBuf,
-    start: u64,
-    end: u64,
-    written: Arc<AtomicU64>,
-    stop: Arc<AtomicBool>,
-    abort: Arc<AtomicBool>,
+    client: &reqwest::Client,
+    url: &str,
+    part_path: &Path,
+    seg: &Arc<Segment>,
+    stop: &Arc<AtomicBool>,
+    abort: &Arc<AtomicBool>,
     ranged: bool,
-    limiter: Arc<RateLimiter>,
+    limiter: &Arc<RateLimiter>,
 ) -> Result<(), EngineError> {
     let stopped = || stop.load(Ordering::Relaxed) || abort.load(Ordering::Relaxed);
     let mut watchdog_used: u32 = 0;
@@ -491,12 +648,13 @@ async fn download_segment(
         if stopped() {
             return Ok(());
         }
-        let pos = start + written.load(Ordering::Relaxed);
+        let pos = seg.start + seg.written();
+        let end = seg.end();
         if end != UNBOUNDED && pos >= end {
             return Ok(());
         }
 
-        let mut req = client.get(&url);
+        let mut req = client.get(url);
         if ranged {
             let range = if end == UNBOUNDED {
                 format!("bytes={pos}-")
@@ -522,7 +680,7 @@ async fn download_segment(
 
         let mut file = tokio::fs::OpenOptions::new()
             .write(true)
-            .open(&part_path)
+            .open(part_path)
             .await
             .map_err(EngineError::io)?;
         file.seek(std::io::SeekFrom::Start(pos))
@@ -541,9 +699,7 @@ async fn download_segment(
             let Some(chunk) = stream.next().await else {
                 // 串流自然結束：該收的都收到就是完成，否則是伺服器提早關線。
                 // 不支援 Range 時接不回原位，只能交給 run() 的完整性檢查處理。
-                break if (end != UNBOUNDED && start + written.load(Ordering::Relaxed) >= end)
-                    || !ranged
-                {
+                break if seg.is_complete() || !ranged {
                     SegOutcome::Complete
                 } else {
                     SegOutcome::Reconnect(Recycle::EarlyClose)
@@ -553,28 +709,45 @@ async fn download_segment(
                 break SegOutcome::Stopped;
             }
             let chunk = chunk.map_err(EngineError::net)?;
-            file.write_all(&chunk).await.map_err(EngineError::io)?;
-            let n = chunk.len() as u64;
-            written.fetch_add(n, Ordering::Relaxed);
+
+            // 這一段的 end 可能剛剛被別的 worker 縮小（work stealing）：
+            // 只寫到 end 為止，超出的部分留給偷走它的那條 worker 自己去抓。
+            // 不夾的話兩條 worker 會各自把同一段 bytes 計進 written，進度會超過 100%。
+            let end_now = seg.end();
+            let mut n = chunk.len() as u64;
+            if end_now != UNBOUNDED {
+                let room = end_now.saturating_sub(seg.start + seg.written());
+                if room == 0 {
+                    break SegOutcome::Complete;
+                }
+                n = n.min(room);
+            }
+            file.write_all(&chunk[..n as usize])
+                .await
+                .map_err(EngineError::io)?;
+            seg.written.fetch_add(n, Ordering::Relaxed);
             conn_bytes += n;
             window_bytes += n;
             // 全域限速：多個分段共用同一顆桶，合計吞吐才是設定值
             if !limiter.acquire(n, stopped).await {
                 break SegOutcome::Stopped;
             }
+            if seg.is_complete() {
+                break SegOutcome::Complete;
+            }
 
             if !ranged {
+                continue;
+            }
+            // 限速開著時既不預防性回收也不看門：低速是設定要的，不是退化
+            if limiter.limit().load(Ordering::Relaxed) != 0 {
                 continue;
             }
             if recycle_due(conn_bytes, conn_start.elapsed()) {
                 break SegOutcome::Reconnect(Recycle::Threshold);
             }
-            // 限速開著的時候不看門：低速是設定要的，不是退化
             let elapsed = window_start.elapsed();
-            if limiter.limit().load(Ordering::Relaxed) == 0
-                && elapsed >= WATCH_WINDOW
-                && watchdog_used < MAX_WATCHDOG_RECONNECTS
-            {
+            if elapsed >= WATCH_WINDOW && watchdog_used < MAX_WATCHDOG_RECONNECTS {
                 let bps = window_bytes as f64 / elapsed.as_secs_f64();
                 window_start = Instant::now();
                 window_bytes = 0;
@@ -598,10 +771,10 @@ async fn download_segment(
         }
         tracing::info!(
             "分段 @{} 換連線（{}）：本條連線搬了 {} bytes，已完成 {} bytes",
-            start,
+            seg.start,
             kind.label(),
             conn_bytes,
-            written.load(Ordering::Relaxed)
+            seg.written()
         );
         // 一個 byte 都沒拿到就換線，可能是伺服器直接關線 → 有限次數 + 間隔，別空轉
         if conn_bytes == 0 {
@@ -700,16 +873,14 @@ mod tests {
         assert_eq!(total_from_content_range("bytes 0-499/*"), None);
     }
 
-    /// part_suffix 決定 `.part` 檔名：直鏈摻 task id、網站只加 .part
-    #[test]
-    fn part_path_follows_config_suffix() {
-        let job = |suffix: &str| DownloadJob {
+    fn job_with_suffix(suffix: &str) -> DownloadJob {
+        DownloadJob {
             url: Mutex::new(String::new()),
             dest_dir: PathBuf::from("/dl"),
             file_name: Mutex::new("a.zip".into()),
             total_bytes: AtomicU64::new(0),
             range_supported: AtomicBool::new(false),
-            segments: Mutex::new(Vec::new()),
+            segments: Arc::new(Mutex::new(Vec::new())),
             cfg: JobConfig {
                 max_segments: 1,
                 min_split_bytes: 0,
@@ -717,9 +888,20 @@ mod tests {
                 part_suffix: suffix.to_string(),
                 resume_from_part_len: false,
             },
-        };
-        assert_eq!(job(".part").part_path(), PathBuf::from("/dl/a.zip.part"));
-        assert_eq!(job(".7.part").part_path(), PathBuf::from("/dl/a.zip.7.part"));
+        }
+    }
+
+    /// part_suffix 決定 `.part` 檔名：同名任務靠它區分，不然會互寫同一個檔
+    #[test]
+    fn part_path_follows_config_suffix() {
+        assert_eq!(
+            job_with_suffix(".part").part_path(),
+            PathBuf::from("/dl/a.zip.part")
+        );
+        assert_eq!(
+            job_with_suffix(".7.part").part_path(),
+            PathBuf::from("/dl/a.zip.7.part")
+        );
     }
 
     fn web_cfg() -> JobConfig {
@@ -816,5 +998,99 @@ mod tests {
         // 其餘要看 body 才知道細節
         assert!(classify_status(500).is_none());
         assert!(classify_status(400).is_none());
+    }
+
+    // ---- work stealing ----
+
+    const M: u64 = 1024 * 1024;
+
+    /// 尾段效應的解法：跑完的 worker 把「剩最多」那一段的後半段搶過來，
+    /// donor 的 end 跟著縮小，兩段合起來仍然剛好覆蓋原區間（不重不漏）。
+    #[test]
+    fn steal_splits_the_segment_with_most_left() {
+        let done = Segment::new(0, 100 * M, 100 * M);
+        let busy = Segment::new(100 * M, 200 * M, 20 * M); // 剩 80M
+        done.claim();
+        busy.claim();
+        let segs = Mutex::new(vec![done, busy.clone()]);
+
+        let stolen = steal_work(&segs).expect("剩 80M 該切得下去");
+        assert_eq!(stolen.start, 160 * M);
+        assert_eq!(stolen.end(), 200 * M);
+        assert_eq!(busy.end(), 160 * M, "donor 的 end 要跟著縮");
+        assert_eq!(busy.end(), stolen.start, "兩段要接得上，不重不漏");
+        assert_eq!(segs.lock_safe().len(), 3);
+    }
+
+    /// 偷完之後 donor 的 written 不能超過它剩下的段長，
+    /// 否則同一段 bytes 會被兩個 Segment 各算一次、進度超過 100%
+    #[test]
+    fn steal_keeps_donor_progress_within_its_new_range() {
+        let busy = Segment::new(0, 100 * M, 30 * M);
+        busy.claim();
+        let segs = Mutex::new(vec![busy.clone()]);
+
+        let stolen = steal_work(&segs).expect("剩 70M 該切得下去");
+        assert!(busy.written() <= busy.end() - busy.start);
+        // 兩段的長度加起來仍是原本的區間
+        assert_eq!(
+            (busy.end() - busy.start) + (stolen.end() - stolen.start),
+            100 * M
+        );
+    }
+
+    /// 先撿沒人認領的既有段 —— 重啟續傳時 segments 會多於 worker 數，
+    /// 這些段沒人撿就永遠搬不完
+    #[test]
+    fn steal_prefers_unclaimed_existing_segment() {
+        let busy = Segment::new(0, 100 * M, 0);
+        busy.claim();
+        let orphan = Segment::new(100 * M, 120 * M, 0);
+        let segs = Mutex::new(vec![busy, orphan.clone()]);
+
+        let got = steal_work(&segs).expect("該撿到孤兒段");
+        assert!(Arc::ptr_eq(&got, &orphan));
+        assert_eq!(segs.lock_safe().len(), 2, "撿現成的不該新增段");
+    }
+
+    /// 剩太少就不值得再開一條連線
+    #[test]
+    fn steal_declines_tiny_remainder() {
+        let s = Segment::new(0, MIN_STEAL_BYTES - 1, 0);
+        s.claim();
+        assert!(steal_work(&Mutex::new(vec![s])).is_none());
+    }
+
+    /// 總大小未知（UNBOUNDED）沒有中點可切
+    #[test]
+    fn steal_declines_unbounded_segment() {
+        let s = Segment::new(0, UNBOUNDED, 0);
+        s.claim();
+        assert!(steal_work(&Mutex::new(vec![s])).is_none());
+    }
+
+    /// 一段可以被反覆切下去，直到剩的量低於門檻；
+    /// 切完的區間必須首尾相接、合起來還是原本那一段
+    #[test]
+    fn steal_can_split_repeatedly_until_threshold() {
+        let busy = Segment::new(0, 64 * M, 0);
+        busy.claim();
+        let segs = Mutex::new(vec![busy]);
+
+        let mut splits = 0;
+        while steal_work(&segs).is_some() {
+            splits += 1;
+            assert!(splits < 32, "不該無限切下去");
+        }
+        assert!(splits >= 3, "64M 至少切得出幾塊，實得 {splits}");
+
+        let mut ranges: Vec<(u64, u64)> =
+            segs.lock_safe().iter().map(|s| (s.start, s.end())).collect();
+        ranges.sort();
+        assert_eq!(ranges.first().unwrap().0, 0);
+        assert_eq!(ranges.last().unwrap().1, 64 * M);
+        for w in ranges.windows(2) {
+            assert_eq!(w[0].1, w[1].0, "區間要首尾相接");
+        }
     }
 }

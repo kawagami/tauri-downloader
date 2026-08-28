@@ -1,5 +1,6 @@
 // src/lib.rs
 
+use crate::utils::lock::RwLockExt;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
@@ -78,13 +79,13 @@ pub fn run() {
                 WindowEvent::CloseRequested { .. } => {
                     // 直鏈任務進度最後落地一次,重開時續傳才接得準
                     if let Some(mgr) = window.try_state::<std::sync::Arc<http_dl::manager::HttpManager>>() {
-                        mgr.persist();
+                        mgr.persist_now();
                     }
                     // 優雅關閉 BT session：暫停 torrents 讓 persistence flush 完再退出
                     // 先 clone Arc 再 block_on，不在鎖裡等待
                     let ts = window
                         .try_state::<torrent::state::BtEngine>()
-                        .and_then(|e| e.inner.read().unwrap().clone());
+                        .and_then(|e| e.inner.read_safe().clone());
                     if let Some(ts) = ts {
                         tauri::async_runtime::block_on(ts.session.stop());
                     }

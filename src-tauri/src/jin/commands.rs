@@ -2,6 +2,7 @@
 // 工作需求遊戲設定分頁的 IPC：先 preview（不寫檔）→ 使用者確認 → apply（寫檔）。
 // 兩者共用同一個 plan_files，preview 看到什麼 apply 就做什麼。
 
+use crate::utils::lock::LockExt;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Mutex;
 
@@ -63,7 +64,7 @@ where
                     break;
                 }
                 let r = f(i, &items[i]);
-                *slots[i].lock().unwrap() = Some(r);
+                *slots[i].lock_safe() = Some(r);
             });
         }
     });

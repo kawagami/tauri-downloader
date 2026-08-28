@@ -195,7 +195,7 @@ export function useDownloadTasks(baseTasks: Task[], onRemoveTask: (url: string) 
 
     const stopBatchDownload = () => {
         shouldStop.current = true;
-        invoke("cancel_download");
+        invoke("cancel_download").catch(() => {});
     };
 
     const reorderTasks = useCallback((activeUrl: string, overUrl: string) => {

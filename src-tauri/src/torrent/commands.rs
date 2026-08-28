@@ -1,3 +1,4 @@
+use crate::utils::lock::LockExt;
 use std::path::PathBuf;
 use std::sync::atomic::Ordering;
 use std::time::Instant;
@@ -73,7 +74,7 @@ pub async fn add_magnet_inner(
         {
             return Ok(json!({ "already_exists": true, "id": existing.id }));
         }
-        if state.pending.lock().unwrap().values().any(|p| {
+        if state.pending.lock_safe().values().any(|p| {
             p.info_hash
                 .as_deref()
                 .is_some_and(|h| h.eq_ignore_ascii_case(hash))
@@ -115,7 +116,7 @@ pub async fn add_magnet_inner(
 
     let dn_name = parsed.name.clone();
     let key = state.pending_seq.fetch_add(1, Ordering::Relaxed);
-    state.pending.lock().unwrap().insert(
+    state.pending.lock_safe().insert(
         key,
         PendingAdd {
             name: parsed.name.clone(),
@@ -132,7 +133,7 @@ pub async fn add_magnet_inner(
             .api
             .api_add_torrent(AddTorrent::from_url(&magnet), Some(opts))
             .await;
-        let mut pending = ts.pending.lock().unwrap();
+        let mut pending = ts.pending.lock_safe();
         match result {
             // 任務已進正式清單，撤掉 placeholder
             Ok(_) => {
@@ -147,7 +148,7 @@ pub async fn add_magnet_inner(
     });
     // 背景 task 可能已跑完並移除 entry；只有還在時才存 handle
     //（drop JoinHandle 不會 abort task）
-    if let Some(p) = state.pending.lock().unwrap().get_mut(&key) {
+    if let Some(p) = state.pending.lock_safe().get_mut(&key) {
         p.handle = Some(handle);
     }
 
@@ -168,7 +169,7 @@ pub async fn add_magnet(
 #[tauri::command]
 pub fn remove_pending(state: State<'_, BtEngine>, key: u64) -> Result<(), String> {
     let ts = state.get()?;
-    if let Some(p) = ts.pending.lock().unwrap().remove(&key) {
+    if let Some(p) = ts.pending.lock_safe().remove(&key) {
         if let Some(handle) = p.handle {
             handle.abort();
         }

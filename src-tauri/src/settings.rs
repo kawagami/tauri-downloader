@@ -5,6 +5,7 @@
 // 三個下載分頁的「預設目錄 + 限速」共用 DownloadSettings：
 // 目錄空字串 = 系統下載資料夾（utils::fs::resolve_dir），限速一律 bytes/s、0 = 不限。
 
+use crate::utils::lock::LockExt;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
@@ -122,13 +123,24 @@ impl SettingsState {
     }
 
     pub fn get(&self) -> AppSettings {
-        self.inner.lock().unwrap().clone()
+        self.inner.lock_safe().clone()
     }
 
-    pub fn save(&self, settings: AppSettings) -> anyhow::Result<()> {
-        // 原子寫入：寫到一半被砍掉不會留下半截設定檔（下次啟動會整份被判壞檔）
-        crate::utils::jsonfile::write_json_atomic(&self.path, &settings)?;
-        *self.inner.lock().unwrap() = settings;
+    /// 存檔。序列化在這裡做，**真正的寫檔丟到 blocking 執行緒** ——
+    /// `std::fs` 是同步 IO，直接壓在 async runtime 上會卡住同一條 worker
+    /// thread 上正在搬 bytes 的下載 task。
+    ///
+    /// 原子寫入：寫到一半被砍掉不會留下半截設定檔（下次啟動會整份被判壞檔）。
+    /// 寫成功才更新記憶體裡的設定 —— 寫失敗卻讓 UI 以為存好了、
+    /// 下次重開又變回舊值，是最難查的那種問題。
+    pub async fn save(&self, settings: AppSettings) -> anyhow::Result<()> {
+        let bytes = serde_json::to_vec_pretty(&settings)?;
+        let path = self.path.clone();
+        tauri::async_runtime::spawn_blocking(move || {
+            crate::utils::jsonfile::write_atomic(&path, &bytes)
+        })
+        .await??;
+        *self.inner.lock_safe() = settings;
         Ok(())
     }
 }

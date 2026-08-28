@@ -2,6 +2,7 @@
 // 實際的位元組搬運（Range 探測、分段並行、限速、`.part`、完成 rename）
 // 在共用引擎 crate::dl，網站下載走同一套。
 
+use crate::utils::lock::LockExt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -108,11 +109,11 @@ impl HttpTask {
     }
 
     pub fn status(&self) -> HttpStatus {
-        *self.status.lock().unwrap()
+        *self.status.lock_safe()
     }
 
     pub fn file_name(&self) -> String {
-        self.job.file_name.lock().unwrap().clone()
+        self.job.file_name.lock_safe().clone()
     }
 
     pub fn total_bytes(&self) -> u64 {
@@ -120,7 +121,7 @@ impl HttpTask {
     }
 
     fn signal_stop(&self) {
-        self.stop.lock().unwrap().store(true, Ordering::Relaxed);
+        self.stop.lock_safe().store(true, Ordering::Relaxed);
     }
 }
 
@@ -155,6 +156,25 @@ pub struct HttpManager {
     client: reqwest::Client,
     /// 全域限速器（bytes/s，0 = 不限），所有分段共用一顆桶
     limiter: Arc<RateLimiter>,
+    /// 快照序號。落地是丟到 blocking 執行緒做的，完成順序不保證，
+    /// 序號讓「舊快照蓋掉新快照」變成可以擋掉的事。
+    write_seq: AtomicU64,
+    /// 最後真正寫進檔案的序號；同時也把並發的寫入序列化（一次只有一條在寫）。
+    last_written: Arc<Mutex<u64>>,
+}
+
+/// 真正落地一份快照。序號比已落地的舊就直接丟掉 —— 那是一份過期的快照，
+/// 寫下去等於把進度倒退回去。
+fn write_snapshot(path: &Path, last_written: &Mutex<u64>, seq: u64, data: &[PersistedTask]) {
+    let mut last = last_written.lock_safe();
+    if seq <= *last {
+        return;
+    }
+    // 原子寫入：下載中每幾秒就寫一次，非原子寫法被砍掉會留半截 JSON → 任務全滅
+    match crate::utils::jsonfile::write_json_atomic(path, &data) {
+        Ok(()) => *last = seq,
+        Err(e) => tracing::error!("寫入 {:?} 失敗: {}", path, e),
+    }
 }
 
 impl HttpManager {
@@ -175,16 +195,12 @@ impl HttpManager {
                         file_name: Mutex::new(p.file_name),
                         total_bytes: AtomicU64::new(p.total_bytes),
                         range_supported: AtomicBool::new(p.range_supported),
-                        segments: Mutex::new(
+                        segments: Arc::new(Mutex::new(
                             p.segments
                                 .into_iter()
-                                .map(|s| Segment {
-                                    start: s.start,
-                                    end: s.end,
-                                    written: Arc::new(AtomicU64::new(s.written)),
-                                })
+                                .map(|s| Segment::new(s.start, s.end, s.written))
                                 .collect(),
-                        ),
+                        )),
                         cfg: job_config(p.id),
                     },
                     status: Mutex::new(p.status),
@@ -211,6 +227,8 @@ impl HttpManager {
             state_path,
             client: build_client(),
             limiter: RateLimiter::new(Arc::new(AtomicU64::new(limit_bps))),
+            write_seq: AtomicU64::new(0),
+            last_written: Arc::new(Mutex::new(0)),
         })
     }
 
@@ -223,8 +241,7 @@ impl HttpManager {
     pub fn resume_interrupted(self: &Arc<Self>) {
         let running: Vec<_> = self
             .tasks
-            .lock()
-            .unwrap()
+            .lock_safe()
             .iter()
             .filter(|t| t.status() == HttpStatus::Running)
             .cloned()
@@ -235,15 +252,14 @@ impl HttpManager {
     }
 
     pub fn find(&self, id: u64) -> Option<Arc<HttpTask>> {
-        self.tasks.lock().unwrap().iter().find(|t| t.id == id).cloned()
+        self.tasks.lock_safe().iter().find(|t| t.id == id).cloned()
     }
 
     pub fn find_active_by_url(&self, url: &str) -> Option<Arc<HttpTask>> {
         self.tasks
-            .lock()
-            .unwrap()
+            .lock_safe()
             .iter()
-            .find(|t| t.status() != HttpStatus::Finished && *t.job.url.lock().unwrap() == url)
+            .find(|t| t.status() != HttpStatus::Finished && *t.job.url.lock_safe() == url)
             .cloned()
     }
 
@@ -257,7 +273,7 @@ impl HttpManager {
                 file_name: Mutex::new(file_name),
                 total_bytes: AtomicU64::new(0),
                 range_supported: AtomicBool::new(false),
-                segments: Mutex::new(Vec::new()),
+                segments: Arc::new(Mutex::new(Vec::new())),
                 cfg: job_config(id),
             },
             status: Mutex::new(HttpStatus::Paused),
@@ -266,7 +282,7 @@ impl HttpManager {
             stop: Mutex::new(Arc::new(AtomicBool::new(false))),
             run_handle: Mutex::new(None),
         });
-        self.tasks.lock().unwrap().push(task.clone());
+        self.tasks.lock_safe().push(task.clone());
         self.persist();
         task
     }
@@ -275,7 +291,7 @@ impl HttpManager {
         if let Some(task) = self.find(id) {
             task.signal_stop();
             if task.status() == HttpStatus::Running {
-                *task.status.lock().unwrap() = HttpStatus::Paused;
+                *task.status.lock_safe() = HttpStatus::Paused;
             }
             self.persist();
         }
@@ -283,7 +299,7 @@ impl HttpManager {
 
     pub fn remove(&self, id: u64, delete_files: bool) {
         let task = {
-            let mut tasks = self.tasks.lock().unwrap();
+            let mut tasks = self.tasks.lock_safe();
             let Some(pos) = tasks.iter().position(|t| t.id == id) else {
                 return;
             };
@@ -299,7 +315,7 @@ impl HttpManager {
         // 還開著,Windows 會回 sharing violation 而刪不掉(以前被 `let _ =` 吞掉,
         // 結果勾了「刪除檔案」卻留下 .part)。等 worker 收工再刪,清單那邊已經移除,
         // UI 不用等。
-        let handle = task.run_handle.lock().unwrap().take();
+        let handle = task.run_handle.lock_safe().take();
         tauri::async_runtime::spawn(async move {
             if let Some(h) = handle {
                 // 上限比 READ_TIMEOUT 略長:worker 最壞情況是卡在讀取逾時才收工
@@ -312,15 +328,15 @@ impl HttpManager {
         });
     }
 
-    pub fn persist(&self) {
-        let data: Vec<PersistedTask> = self
-            .tasks
-            .lock()
-            .unwrap()
+    /// 收一份目前狀態的快照。序號在 tasks 鎖裡取，讓序號順序 = 快照新舊順序。
+    fn snapshot(&self) -> (u64, Vec<PersistedTask>) {
+        let tasks = self.tasks.lock_safe();
+        let seq = self.write_seq.fetch_add(1, Ordering::Relaxed) + 1;
+        let data: Vec<PersistedTask> = tasks
             .iter()
             .map(|t| PersistedTask {
                 id: t.id,
-                url: t.job.url.lock().unwrap().clone(),
+                url: t.job.url.lock_safe().clone(),
                 file_name: t.file_name(),
                 dest_dir: t.job.dest_dir.to_string_lossy().into_owned(),
                 total_bytes: t.total_bytes(),
@@ -328,33 +344,46 @@ impl HttpManager {
                 segments: t
                     .job
                     .segments
-                    .lock()
-                    .unwrap()
+                    .lock_safe()
                     .iter()
                     .map(|s| PersistedSegment {
                         start: s.start,
-                        end: s.end,
-                        written: s.written.load(Ordering::Relaxed),
+                        end: s.end(),
+                        written: s.written(),
                     })
                     .collect(),
                 status: t.status(),
-                error: t.error.lock().unwrap().clone(),
+                error: t.error.lock_safe().clone(),
                 retryable: t.retryable.load(Ordering::Relaxed),
             })
             .collect();
-        // 原子寫入：下載中每幾秒就寫一次，非原子寫法被砍掉會留半截 JSON → 任務全滅
-        if let Err(e) = crate::utils::jsonfile::write_json_atomic(&self.state_path, &data) {
-            tracing::error!("寫入 {:?} 失敗: {}", self.state_path, e);
-        }
+        (seq, data)
+    }
+
+    /// 落地任務狀態。**寫檔丟到 blocking 執行緒**：`std::fs` 是同步 IO，
+    /// 直鏈下載跑動中每幾秒就 persist 一次，壓在 async runtime 的 worker
+    /// 上會連帶卡住同一條 thread 上所有正在搬 bytes 的 task。
+    pub fn persist(&self) {
+        let (seq, data) = self.snapshot();
+        let path = self.state_path.clone();
+        let last = self.last_written.clone();
+        tauri::async_runtime::spawn_blocking(move || write_snapshot(&path, &last, seq, &data));
+    }
+
+    /// 關閉 app 時用：就地寫完才回。這時候丟 spawn_blocking 出去沒有意義 ——
+    /// 程序馬上就結束，那條 task 可能根本沒被排到。
+    pub fn persist_now(&self) {
+        let (seq, data) = self.snapshot();
+        write_snapshot(&self.state_path, &self.last_written, seq, &data);
     }
 
     /// 啟動(或續跑)一個任務。狀態立即轉 Running;實際下載在背景 task。
     /// 結束時:使用者主動停(stop 旗標)→ 不動狀態;否則寫 Finished / Error。
     pub fn spawn_run(self: &Arc<Self>, task: Arc<HttpTask>) {
         let stop = Arc::new(AtomicBool::new(false));
-        *task.stop.lock().unwrap() = stop.clone();
-        *task.status.lock().unwrap() = HttpStatus::Running;
-        *task.error.lock().unwrap() = None;
+        *task.stop.lock_safe() = stop.clone();
+        *task.status.lock_safe() = HttpStatus::Running;
+        *task.error.lock_safe() = None;
         self.persist();
 
         let mgr = self.clone();
@@ -373,8 +402,8 @@ impl HttpManager {
                 }
                 match result {
                     Ok(_) => {
-                        *task.status.lock().unwrap() = HttpStatus::Finished;
-                        *task.error.lock().unwrap() = None;
+                        *task.status.lock_safe() = HttpStatus::Finished;
+                        *task.error.lock_safe() = None;
                         break;
                     }
                     Err(e) if e.retryable && attempt < MAX_AUTO_RETRIES => {
@@ -389,7 +418,7 @@ impl HttpManager {
                             MAX_AUTO_RETRIES
                         );
                         // 狀態留 Running：任務還沒放棄，UI 顯示錯誤訊息 + 重試進度即可
-                        *task.error.lock().unwrap() = Some(format!(
+                        *task.error.lock_safe() = Some(format!(
                             "{}（{} 秒後自動重試 {}/{}）",
                             e.message,
                             delay.as_secs(),
@@ -400,11 +429,11 @@ impl HttpManager {
                         if !sleep_unless_stopped(delay, &stop).await {
                             return;
                         }
-                        *task.error.lock().unwrap() = None;
+                        *task.error.lock_safe() = None;
                     }
                     Err(e) => {
-                        *task.status.lock().unwrap() = HttpStatus::Error;
-                        *task.error.lock().unwrap() = Some(if attempt > 0 {
+                        *task.status.lock_safe() = HttpStatus::Error;
+                        *task.error.lock_safe() = Some(if attempt > 0 {
                             format!("{}（已自動重試 {} 次）", e.message, attempt)
                         } else {
                             e.message
@@ -418,7 +447,7 @@ impl HttpManager {
         });
         // 刪除任務時要等這條收工才動檔案（背景 task 可能已跑完，存進去也無妨：
         // await 一個已結束的 handle 會立刻返回）
-        *task.run_handle.lock().unwrap() = Some(handle);
+        *task.run_handle.lock_safe() = Some(handle);
     }
 }
 

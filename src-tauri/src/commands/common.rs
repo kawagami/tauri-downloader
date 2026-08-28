@@ -59,7 +59,7 @@ pub fn get_app_settings(settings: State<'_, SettingsState>) -> AppSettings {
 /// 存 app 設定並即時套用 runtime 旗標（網站/直鏈限速、監控開關）。
 /// BT port/限速仍是重啟生效（session 建立時讀取）。
 #[tauri::command]
-pub fn save_app_settings(
+pub async fn save_app_settings(
     state: State<'_, AppState>,
     settings_state: State<'_, SettingsState>,
     http: State<'_, Arc<HttpManager>>,
@@ -67,6 +67,7 @@ pub fn save_app_settings(
 ) -> Result<(), String> {
     settings_state
         .save(settings.clone())
+        .await
         .map_err(|e| format!("儲存設定失敗: {:?}", e))?;
     apply_runtime_settings(&state, &http, &settings);
     Ok(())

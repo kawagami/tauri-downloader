@@ -1,3 +1,4 @@
+use crate::utils::lock::LockExt;
 use crate::{providers::ClipboardPayload, state::AppState};
 
 use rusqlite::{params, Connection, Result};
@@ -39,7 +40,7 @@ pub fn init_db(app_handle: &AppHandle) -> Result<Connection, Box<dyn std::error:
 /// 新增任務資料，回傳是否實際插入（false = 已存在略過）
 pub fn insert_task(app_handle: &AppHandle, payload: &ClipboardPayload) -> Result<bool> {
     let state = app_handle.state::<AppState>();
-    let conn = state.db.lock().unwrap();
+    let conn = state.db.lock_safe();
 
     let affected = conn.execute(
         "INSERT OR IGNORE INTO tasks (url, title, image, download_page_href, file_url, file_size, created_at, db_status, sort_order)
@@ -62,7 +63,7 @@ pub fn insert_task(app_handle: &AppHandle, payload: &ClipboardPayload) -> Result
 /// 取得所有任務資料
 pub fn get_all_tasks(app_handle: &AppHandle) -> Result<Vec<ClipboardPayload>> {
     let state = app_handle.state::<AppState>();
-    let conn = state.db.lock().unwrap();
+    let conn = state.db.lock_safe();
 
     let mut stmt = conn.prepare(
         "SELECT url, title, image, download_page_href, file_url, file_size, created_at, db_status FROM tasks ORDER BY sort_order ASC",
@@ -92,7 +93,7 @@ pub fn get_all_tasks(app_handle: &AppHandle) -> Result<Vec<ClipboardPayload>> {
 /// 刪除指定 URL 的任務
 pub fn delete_task_by_url(app_handle: &AppHandle, url: &str) -> Result<()> {
     let state = app_handle.state::<AppState>();
-    let conn = state.db.lock().unwrap();
+    let conn = state.db.lock_safe();
     conn.execute("DELETE FROM tasks WHERE url = ?1", params![url])?;
     Ok(())
 }
@@ -100,7 +101,7 @@ pub fn delete_task_by_url(app_handle: &AppHandle, url: &str) -> Result<()> {
 /// 更新任務的持久化狀態
 pub fn update_task_status(app_handle: &AppHandle, url: &str, status: &str) -> Result<()> {
     let state = app_handle.state::<AppState>();
-    let conn = state.db.lock().unwrap();
+    let conn = state.db.lock_safe();
     conn.execute("UPDATE tasks SET db_status = ?1 WHERE url = ?2", params![status, url])?;
     Ok(())
 }
@@ -108,7 +109,7 @@ pub fn update_task_status(app_handle: &AppHandle, url: &str, status: &str) -> Re
 /// 更新任務排序順序
 pub fn reorder_tasks(app_handle: &AppHandle, urls: &[String]) -> Result<()> {
     let state = app_handle.state::<AppState>();
-    let mut conn = state.db.lock().unwrap();
+    let mut conn = state.db.lock_safe();
     let tx = conn.transaction()?;
     for (i, url) in urls.iter().enumerate() {
         tx.execute(
@@ -123,7 +124,7 @@ pub fn reorder_tasks(app_handle: &AppHandle, urls: &[String]) -> Result<()> {
 /// 清空所有任務
 pub fn clear_all_tasks(app_handle: &AppHandle) -> Result<()> {
     let state = app_handle.state::<AppState>();
-    let conn = state.db.lock().unwrap();
+    let conn = state.db.lock_safe();
     conn.execute("DELETE FROM tasks", [])?;
     Ok(())
 }

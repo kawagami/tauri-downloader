@@ -1,3 +1,4 @@
+use crate::utils::lock::LockExt;
 use std::collections::HashMap;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
@@ -26,7 +27,7 @@ pub fn spawn_http_stats_task(app: AppHandle) {
         loop {
             interval.tick().await;
             let mgr = app.state::<Arc<HttpManager>>();
-            let tasks: Vec<_> = mgr.tasks.lock().unwrap().clone();
+            let tasks: Vec<_> = mgr.tasks.lock_safe().clone();
 
             if tasks.is_empty() && prev_empty {
                 first_tick = false;
@@ -74,7 +75,7 @@ pub fn spawn_http_stats_task(app: AppHandle) {
                     "downloaded_bytes": downloaded,
                     "total_bytes": total,
                     "down_speed_bps": bps,
-                    "error": t.error.lock().unwrap().clone(),
+                    "error": t.error.lock_safe().clone(),
                     "retryable": t.retryable.load(Ordering::Relaxed),
                 }));
             }

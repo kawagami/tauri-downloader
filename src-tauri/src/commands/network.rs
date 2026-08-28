@@ -1,6 +1,7 @@
 // 網站下載指令 —— 位元組搬運交給共用引擎 crate::dl（與直鏈下載同一套），
 // 這裡只負責：解析出真正的檔案連結、組 job、回報進度、把引擎的錯誤翻成 UI 用的分類。
 
+use crate::utils::lock::LockExt;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -21,12 +22,15 @@ const EMIT_INTERVAL: Duration = Duration::from_millis(250);
 /// 單段是刻意的：`.part` 的長度本身就是續傳進度，不必另外持久化偏移
 ///（web 任務存在 SQLite，沒有 segments 欄位）。檔名鎖死 `{title}.zip`，
 /// 不讓 Content-Disposition 蓋掉——清單和「已下載過」判斷都靠它。
-fn web_job_config() -> JobConfig {
+///
+/// `.part` 後綴摻來源 URL 的雜湊：同標題不同作品的兩個任務要是共用同一個
+/// `.part`，後一個會把前一個暫停留下的半截檔當成自己的進度接下去（見 utils::fs）。
+fn web_job_config(url: &str) -> JobConfig {
     JobConfig {
         max_segments: 1,
         min_split_bytes: 0,
         rename_from_headers: false,
-        part_suffix: ".part".to_string(),
+        part_suffix: utils::fs::web_part_suffix(url),
         resume_from_part_len: true,
     }
 }
@@ -90,14 +94,18 @@ pub async fn download_with_progress(
         site.resolve_file_url(&app_handle, &url).await?
     };
 
+    let cfg = web_job_config(&url);
+    // 舊版的 `{title}.zip.part`（沒有雜湊）搬到新命名，續傳進度不丟
+    utils::fs::migrate_legacy_part(&save_path, &cfg.part_suffix);
+
     let job = Arc::new(DownloadJob {
         url: Mutex::new(resolved),
         dest_dir: download_dir,
         file_name: Mutex::new(file_name),
         total_bytes: AtomicU64::new(0),
         range_supported: AtomicBool::new(false),
-        segments: Mutex::new(Vec::new()),
-        cfg: web_job_config(),
+        segments: Arc::new(Mutex::new(Vec::new())),
+        cfg,
     });
 
     let stop = state.register_cancel(&url);
@@ -115,7 +123,7 @@ pub async fn download_with_progress(
         tracing::info!("快取 file_url 失效，重新抓取: {}", url);
         match site.resolve_file_url(&app_handle, &url).await {
             Ok(fresh) => {
-                *job.url.lock().unwrap() = fresh;
+                *job.url.lock_safe() = fresh;
                 result = dl::run(&state.client, &job, &stop, state.limiter.clone()).await;
             }
             // 重抓本身就 404（下載頁整個消失）→ 維持原本的失效結論

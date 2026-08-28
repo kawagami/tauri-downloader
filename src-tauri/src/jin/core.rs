@@ -2,6 +2,7 @@
 // 自 tools/src/bin/jin_game_add.rs + tools/src/lib.rs 移植的純邏輯（無 IPC、無 UI）。
 // 職責：掃 code.*.php、判斷現況（已啟用/已註解/未加入）、產生新內容。
 
+use crate::utils::lock::LockExt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Mutex;
@@ -126,7 +127,7 @@ fn walk_code_php_parallel(start: Vec<PathBuf>, threads: usize) -> Result<Vec<Str
                 // 會看到「佇列空 && active == 0」而提早 break，最壞退化成單執行緒
                 // 把整棵樹跑完 —— 正是這段並行想解決的問題。
                 let dir = {
-                    let mut q = queue.lock().unwrap();
+                    let mut q = queue.lock_safe();
                     let popped = q.pop();
                     if popped.is_some() {
                         active.fetch_add(1, Ordering::SeqCst);
@@ -161,14 +162,14 @@ fn walk_code_php_parallel(start: Vec<PathBuf>, threads: usize) -> Result<Vec<Str
                             }
                         }
                         if !subdirs.is_empty() {
-                            queue.lock().unwrap().extend(subdirs);
+                            queue.lock_safe().extend(subdirs);
                         }
                         if !found.is_empty() {
-                            out.lock().unwrap().extend(found);
+                            out.lock_safe().extend(found);
                         }
                     }
                     Err(e) => {
-                        let mut fe = first_err.lock().unwrap();
+                        let mut fe = first_err.lock_safe();
                         if fe.is_none() {
                             *fe = Some(format!("{}：{}", dir.display(), e));
                         }

@@ -1,4 +1,5 @@
 // src/state.rs
+use crate::utils::lock::LockExt;
 use reqwest::Client;
 use rusqlite::Connection;
 use std::collections::HashMap;
@@ -40,8 +41,7 @@ impl AppState {
         let flag = Arc::new(AtomicBool::new(false));
         if let Some(old) = self
             .cancels
-            .lock()
-            .unwrap()
+            .lock_safe()
             .insert(url.to_string(), flag.clone())
         {
             old.store(true, Ordering::Relaxed);
@@ -52,7 +52,7 @@ impl AppState {
     /// 下載結束後清掉登記（只在還是自己那顆旗標時才移除，
     /// 避免把後來重新開始的那一條誤刪）
     pub fn unregister_cancel(&self, url: &str, flag: &Arc<AtomicBool>) {
-        let mut map = self.cancels.lock().unwrap();
+        let mut map = self.cancels.lock_safe();
         if map.get(url).is_some_and(|f| Arc::ptr_eq(f, flag)) {
             map.remove(url);
         }
@@ -60,7 +60,7 @@ impl AppState {
 
     /// 取消全部進行中的網站下載（工具列「停止下載」）
     pub fn cancel_all_downloads(&self) {
-        for flag in self.cancels.lock().unwrap().values() {
+        for flag in self.cancels.lock_safe().values() {
             flag.store(true, Ordering::Relaxed);
         }
     }

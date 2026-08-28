@@ -4,6 +4,7 @@
 // 併發安全：多個分段各自呼叫 acquire()，超額的部分算成「欠帳」讓該分段自己睡，
 // 合計吞吐仍收斂到 limit。睡眠切 250ms 小段，取消旗標能即時中斷。
 
+use crate::utils::lock::LockExt;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -52,7 +53,7 @@ impl RateLimiter {
             if limit == 0 {
                 return !cancelled();
             }
-            let mut b = self.bucket.lock().unwrap();
+            let mut b = self.bucket.lock_safe();
             let now = Instant::now();
             if b.last_limit != limit {
                 // 限速剛改：重新起算，不把舊速率的帳算到新速率頭上

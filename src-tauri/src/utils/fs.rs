@@ -25,15 +25,51 @@ pub fn get_unique_save_path(dir: PathBuf, title: &str) -> PathBuf {
     path
 }
 
-/// 下載中的暫存路徑（`{save_path}.part`）。整段附加在原檔名後，
+/// 下載中的暫存路徑（`{save_path}{suffix}`）。整段附加在原檔名後，
 /// 標題本身含點號也不會被 `with_extension` 吃掉。
-pub fn part_path(save_path: &Path) -> PathBuf {
+pub fn part_path(save_path: &Path, suffix: &str) -> PathBuf {
     let mut name = save_path
         .file_name()
         .map(OsString::from)
         .unwrap_or_else(|| OsString::from("download"));
-    name.push(PART_SUFFIX);
+    name.push(suffix);
     save_path.with_file_name(name)
+}
+
+/// FNV-1a —— 只要「同一個 URL 每次都算出同一個值」，跨程序、跨版本都不能變。
+/// `DefaultHasher` 不行：std 明說它的輸出不保證跨版本穩定，而這個值會寫進
+/// 檔名，變了就等於續傳進度整個消失。
+fn fnv1a(s: &str) -> u64 {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in s.as_bytes() {
+        h ^= *b as u64;
+        h = h.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    h
+}
+
+/// 網站下載的 `.part` 後綴：`.{url 雜湊}.part`。
+///
+/// 光用 `{title}.part` 會出事：`get_unique_save_path` 只跟已完成的 `.zip` 比對、
+/// 刻意不認 `.part`，所以「同標題、不同 URL」的兩個任務會算出同一個 `.part`。
+/// 前一個任務暫停留下的半截檔，會被後一個任務當成自己的續傳起點接下去寫，
+/// 最後 rename 成一個兩部作品拼起來、大小卻剛好對得上的壞檔 —— 全程無錯誤訊息。
+/// 直鏈那邊摻的是 task id，web 沒有 id 可用，就拿來源 URL 當識別。
+pub fn web_part_suffix(url: &str) -> String {
+    format!(".{:016x}{}", fnv1a(url), PART_SUFFIX)
+}
+
+/// 舊版（無雜湊）的 `{name}.part` 搬成新命名，續傳進度不丟。
+/// 與 http_dl 載入時做的 `.part` 遷移同一個用意。
+pub fn migrate_legacy_part(save_path: &Path, suffix: &str) {
+    let old = part_path(save_path, PART_SUFFIX);
+    let new = part_path(save_path, suffix);
+    if old != new && old.exists() && !new.exists() {
+        match std::fs::rename(&old, &new) {
+            Ok(()) => tracing::info!("舊 .part 已改名: {:?} -> {:?}", old, new),
+            Err(e) => tracing::warn!("舊 .part 改名失敗 {:?}: {}", old, e),
+        }
+    }
 }
 
 /// 這個標題是否已經下載完成過（`{base}.zip` 或 `{base}_N.zip`）。
@@ -91,7 +127,7 @@ mod tests {
     #[test]
     fn part_path_appends_suffix() {
         assert_eq!(
-            part_path(Path::new(r"C:\dl\a.b.zip")),
+            part_path(Path::new(r"C:\dl\a.b.zip"), ".part"),
             PathBuf::from(r"C:\dl\a.b.zip.part")
         );
     }
@@ -108,7 +144,7 @@ mod tests {
 
         // 下載中的 .part 不算完成
         let first = get_unique_save_path(dir.clone(), title);
-        std::fs::write(part_path(&first), b"x").unwrap();
+        std::fs::write(part_path(&first, ".part"), b"x").unwrap();
         assert!(!already_downloaded(&dir, title));
 
         std::fs::write(&first, b"x").unwrap();
@@ -120,6 +156,38 @@ mod tests {
         std::fs::remove_file(&first).unwrap();
         std::fs::write(&second, b"x").unwrap();
         assert!(already_downloaded(&dir, title));
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// 同標題不同 URL 必須拿到不同的 `.part`，否則後一個任務會把前一個
+    /// 暫停留下的半截檔當成自己的續傳起點，拼出一個大小對得上的壞檔
+    #[test]
+    fn web_part_suffix_separates_same_title_tasks() {
+        let a = web_part_suffix("https://www.wnacg.com/photos-index-aid-1.html");
+        let b = web_part_suffix("https://www.wnacg.com/photos-index-aid-2.html");
+        assert_ne!(a, b);
+        assert!(a.ends_with(".part"));
+        // 同一個 URL 每次都要算出同一個後綴，不然重開 app 就接不回進度
+        assert_eq!(a, web_part_suffix("https://www.wnacg.com/photos-index-aid-1.html"));
+        assert_ne!(
+            part_path(Path::new(r"C:\dl\same.zip"), &a),
+            part_path(Path::new(r"C:\dl\same.zip"), &b)
+        );
+    }
+
+    /// 舊版的 `{name}.part` 要能搬到新命名，續傳進度不丟
+    #[test]
+    fn legacy_part_is_migrated_to_hashed_name() {
+        let dir = std::env::temp_dir().join(format!("dl-migrate-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let save = dir.join("a.zip");
+        let suffix = web_part_suffix("https://example.com/a");
+
+        std::fs::write(part_path(&save, ".part"), b"half").unwrap();
+        migrate_legacy_part(&save, &suffix);
+        assert!(!part_path(&save, ".part").exists());
+        assert_eq!(std::fs::read(part_path(&save, &suffix)).unwrap(), b"half");
 
         std::fs::remove_dir_all(&dir).ok();
     }

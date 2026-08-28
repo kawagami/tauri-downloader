@@ -1,3 +1,4 @@
+use crate::utils::lock::RwLockExt;
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::num::NonZeroU32;
@@ -46,8 +47,8 @@ pub struct BtEngine {
 impl BtEngine {
     /// 取引擎，未就緒回錯誤字串（直接可當 command 錯誤回前端）
     pub fn get(&self) -> Result<Arc<TorrentState>, String> {
-        self.inner.read().unwrap().clone().ok_or_else(|| {
-            match self.last_error.read().unwrap().clone() {
+        self.inner.read_safe().clone().ok_or_else(|| {
+            match self.last_error.read_safe().clone() {
                 Some(e) => format!("BT 引擎未啟動:{}", e),
                 None => "BT 引擎啟動中,請稍候".to_string(),
             }
@@ -56,8 +57,8 @@ impl BtEngine {
 
     pub fn status(&self) -> serde_json::Value {
         serde_json::json!({
-            "ready": self.inner.read().unwrap().is_some(),
-            "error": self.last_error.read().unwrap().clone(),
+            "ready": self.inner.read_safe().is_some(),
+            "error": self.last_error.read_safe().clone(),
         })
     }
 }
@@ -67,7 +68,7 @@ impl BtEngine {
 pub fn spawn_init(app: AppHandle) {
     {
         let engine = app.state::<BtEngine>();
-        if engine.inner.read().unwrap().is_some() {
+        if engine.inner.read_safe().is_some() {
             return;
         }
         if engine.initializing.swap(true, Ordering::SeqCst) {
@@ -86,14 +87,14 @@ pub fn spawn_init(app: AppHandle) {
         let engine = app.state::<BtEngine>();
         match result {
             Ok(ts) => {
-                *engine.inner.write().unwrap() = Some(Arc::new(ts));
-                *engine.last_error.write().unwrap() = None;
+                *engine.inner.write_safe() = Some(Arc::new(ts));
+                *engine.last_error.write_safe() = None;
                 let _ = app.emit("bt-engine-status", engine.status());
             }
             Err(e) => {
                 let msg = format!("{:#}", e);
                 tracing::error!("BT 引擎啟動失敗: {}", msg);
-                *engine.last_error.write().unwrap() = Some(msg);
+                *engine.last_error.write_safe() = Some(msg);
                 let _ = app.emit("bt-engine-status", engine.status());
             }
         }

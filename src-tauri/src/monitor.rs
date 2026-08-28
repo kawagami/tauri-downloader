@@ -1,3 +1,4 @@
+use crate::utils::lock::LockExt;
 use crate::db;
 use crate::providers::Site;
 use crate::state::AppState;
@@ -48,7 +49,7 @@ pub fn start_clipboard_monitor(app_handle: AppHandle, running: Arc<AtomicBool>) 
                         // magnet 連結 → 交給 BT 引擎，沿用同一節流 map（key 為 magnet 字串）
                         let now = Instant::now();
                         let should_add = {
-                            let mut map = recent_urls.lock().unwrap();
+                            let mut map = recent_urls.lock_safe();
                             map.retain(|_, t| now.duration_since(*t).as_secs() < URL_THROTTLE_SECS);
                             if map.contains_key(trimmed) {
                                 false
@@ -81,7 +82,7 @@ pub fn start_clipboard_monitor(app_handle: AppHandle, running: Arc<AtomicBool>) 
                                         tracing::error!("Magnet add error: {}", e);
                                         // 加入失敗（如引擎未就緒）移出節流名單讓使用者可立即重試，
                                         // 並通知前端顯示 toast（與站台 URL fetch 失敗行為一致）
-                                        recent_urls.lock().unwrap().remove(&magnet);
+                                        recent_urls.lock_safe().remove(&magnet);
                                         let _ = handle.emit("magnet-add-error", e);
                                     }
                                 }
@@ -92,7 +93,7 @@ pub fn start_clipboard_monitor(app_handle: AppHandle, running: Arc<AtomicBool>) 
                             // 節流：30 秒內同一 URL 不重複抓取
                             let now = Instant::now();
                             let should_fetch = {
-                                let mut map = recent_urls.lock().unwrap();
+                                let mut map = recent_urls.lock_safe();
                                 map.retain(|_, t| now.duration_since(*t).as_secs() < URL_THROTTLE_SECS);
                                 if map.contains_key(&normalized_url) {
                                     false
@@ -139,7 +140,7 @@ pub fn start_clipboard_monitor(app_handle: AppHandle, running: Arc<AtomicBool>) 
                                         Err(e) => {
                                             tracing::error!("Fetch Error: {}", e);
                                             // 抓取失敗，移出節流名單讓使用者可立即重試
-                                            recent_urls.lock().unwrap().remove(&url_to_fetch);
+                                            recent_urls.lock_safe().remove(&url_to_fetch);
                                             // 與 magnet-add-error 對稱：不通知的話使用者只會看到
                                             // 「複製了但沒反應」，分不出是網路掛了、站台改版、
                                             // 還是這個 provider 根本還沒實作（nhentai）
