@@ -77,7 +77,7 @@ export function AddHttpDialog({ onClose, onAdded }: Props) {
           />
         </label>
         <label>
-          下載到(留空 = 系統下載資料夾)
+          下載到(留空 = 設定的預設目錄,再空 = 系統下載資料夾)
           <div className="dir-picker">
             <input
               type="text"

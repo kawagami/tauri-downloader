@@ -54,7 +54,8 @@ fn fnv1a(s: &str) -> u64 {
 /// 刻意不認 `.part`，所以「同標題、不同 URL」的兩個任務會算出同一個 `.part`。
 /// 前一個任務暫停留下的半截檔，會被後一個任務當成自己的續傳起點接下去寫，
 /// 最後 rename 成一個兩部作品拼起來、大小卻剛好對得上的壞檔 —— 全程無錯誤訊息。
-/// 直鏈那邊摻的是 task id，web 沒有 id 可用，就拿來源 URL 當識別。
+/// 直鏈那邊摻的是 task id，web 沒有 id 可用，就拿呼叫端傳進來的連結當識別
+///（`commands::network` 傳的是下載頁連結 `download_page_href`，與作品頁 URL 一一對應）。
 pub fn web_part_suffix(url: &str) -> String {
     format!(".{:016x}{}", fnv1a(url), PART_SUFFIX)
 }

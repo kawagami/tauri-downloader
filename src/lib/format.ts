@@ -1,4 +1,5 @@
-// BT 分頁用的格式化工具（自 magnet-downloader 移植）
+// 網站/磁力/直鏈三個下載分頁共用的格式化工具（自 magnet-downloader 移植）。
+// 遊戲設定分頁不用這裡的東西（它只顯示執行經過秒數）。
 
 const UNITS = ["B", "KiB", "MiB", "GiB", "TiB"];
 

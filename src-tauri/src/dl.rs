@@ -1,6 +1,7 @@
 // src/dl.rs
 // 共用下載引擎 —— 網站下載與直鏈下載共用同一套位元組搬運：
-// Range 探測、`.part` 預配置、分段並行、work stealing、限速、完整性檢查、完成 rename。
+// Range 探測、分段並行、work stealing、限速、完整性檢查、完成 rename。
+//（`.part` 只有分段模式會預配置成完整大小；單段刻意不配置 —— 見 probe_and_prepare）
 //
 // 引擎只管「把 bytes 搬到磁碟」；任務管理（狀態機、錯誤呈現、持久化、UI 事件）
 // 留在各自的呼叫端 —— 兩邊的任務模型差很多（web 有 DB/排序/縮圖，http 有 segments），
@@ -484,7 +485,10 @@ fn resume_offset(cfg: &JobConfig, ranged: bool, total: u64, split: bool, part_le
 }
 
 /// 首次請求:確認狀態碼、取檔名(Content-Disposition)、總大小與 Range
-/// 支援度,然後預配置 `.part` 檔並切段。
+/// 支援度,然後開好 `.part` 檔並切段。
+///
+/// `.part` 只有**分段模式**才 `set_len(total)` 預配置（各段 seek 到自己的偏移寫）；
+/// 單段是循序 append,預配置會毀掉「`.part` 長度 = 已下載量」這個續傳依據。
 async fn probe_and_prepare(
     client: &reqwest::Client,
     job: &DownloadJob,

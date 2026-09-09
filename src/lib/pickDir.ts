@@ -1,4 +1,5 @@
-// 選資料夾 — 四個 dialog（BT/直鏈/jin/統一設定）共用同一個入口
+// 選資料夾 — 三處共用同一個入口：AddMagnetDialog、AddHttpDialog、
+// SettingsDialog 的 DirField（jin 根目錄也走 DirField，沒有自己的 dialog）
 
 import { open } from "@tauri-apps/plugin-dialog";
 
