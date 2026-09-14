@@ -13,7 +13,7 @@ Tauri 2.0 + React 19 的個人下載工具（Windows）。監控剪貼簿，複�
 
 ## 開發環境（Windows）
 
-需要 Rust toolchain（MSVC）＋ Node（用 nvm 或 pnpm 自帶的 env）。
+需要 Rust toolchain（MSVC）＋ Node。下面用 pnpm 自帶的 `pnpm env` 裝 Node；習慣 nvm 也可以。
 
 ```powershell
 iwr https://get.pnpm.io/install.ps1 -useb | iex
@@ -21,7 +21,7 @@ pnpm env use --global lts
 pnpm install
 ```
 
-> 早期試過用 docker 開發環境，Tauri 要 GUI/WebView 太麻煩，改用 nvm 直接裝在本機。
+> 早期試過用 docker 開發環境，Tauri 要 GUI/WebView 太麻煩，改成直接裝在本機。
 
 ## 指令
 

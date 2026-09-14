@@ -15,6 +15,7 @@
   --primary-soft: #eff6ff;
   --success: #16a34a;
   --success-bar: #22c55e;
+  --success-bar-end: #16a34a;
   --danger: #ef4444;
   --danger-hover: #dc2626;
   --warning: #f59e0b;
@@ -26,6 +27,7 @@
   --not-found-soft: #fef2f2;
   --warning-soft: #fef3c7;
   --toast-bg: #1e293b;
+  --toast-text: #f8fafc;
   --backdrop: rgba(15, 23, 42, 0.4);
 
   --radius: 8px;
@@ -53,6 +55,7 @@
   --primary-soft: rgba(59, 130, 246, 0.2);
   --success: #4ade80;
   --success-bar: #22c55e;
+  --success-bar-end: #16a34a;
   --danger: #f87171;
   --danger-hover: #ef4444;
   --warning: #fbbf24;
@@ -63,6 +66,7 @@
   --not-found-soft: rgba(239, 68, 68, 0.1);
   --warning-soft: rgba(245, 158, 11, 0.16);
   --toast-bg: #334155;
+  --toast-text: #f8fafc;
   --backdrop: rgba(0, 0, 0, 0.55);
 
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
@@ -450,7 +454,7 @@ button:disabled {
 }
 
 .progress-fill {
-  background: linear-gradient(90deg, var(--success-bar), #16a34a);
+  background: linear-gradient(90deg, var(--success-bar), var(--success-bar-end));
   height: 8px;
   border-radius: 999px;
   transition: width 0.2s ease;
@@ -891,7 +895,7 @@ button:disabled {
 
 .toast {
   background: var(--toast-bg);
-  color: #f8fafc;
+  color: var(--toast-text);
   padding: 10px 14px;
   border-radius: var(--radius-sm);
   box-shadow: var(--shadow-lg);

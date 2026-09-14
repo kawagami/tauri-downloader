@@ -341,8 +341,9 @@ impl DownloadJob {
 
 /// 跑一次下載。成功回傳最終落地路徑（碰撞時會是 `name (1).ext`）。
 ///
-/// `stop` 是使用者主動停（暫停/刪除/取消）：設了就提前返回 `Ok`，
-/// 由呼叫端決定狀態，引擎不覆寫。失敗時 `.part` **保留**，下次可續傳。
+/// `stop` 是使用者主動停（暫停/刪除/取消）：設了就提前返回 `Err("已停止")`
+///（retryable），呼叫端應先用 `is_stopped()` 分辨再看結果，狀態由呼叫端決定、
+/// 引擎不覆寫。失敗時 `.part` **保留**，下次可續傳。
 pub async fn run(
     client: &reqwest::Client,
     job: &DownloadJob,

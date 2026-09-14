@@ -105,7 +105,7 @@ export function useDownloadTasks(baseTasks: Task[], onRemoveTask: (url: string) 
             setTasks(prev =>
                 sortTasks(prev.map(t =>
                     t.url === taskUrl
-                        ? { ...t, status: "not_found", errorMessage: "找不到檔案 (404)" }
+                        ? { ...t, status: "not_found", errorMessage: "找不到檔案 (404/410)" }
                         : t
                 ))
             );

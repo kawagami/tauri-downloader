@@ -68,7 +68,7 @@ impl Site {
         }
     }
 
-    /// 解析下載頁面 取得 ClipboardPayload 所需的資料
+    /// 抓作品頁（標題/封面/下載頁連結），再順帶預取下載頁上的檔案連結與大小，組成 ClipboardPayload
     pub async fn fetch_details(
         &self,
         handle: &AppHandle,
@@ -82,7 +82,7 @@ impl Site {
         }
     }
 
-    /// 從作品頁解析出真正的檔案下載連結。
+    /// 從下載頁（`download_page_href`，不是作品頁）解析出真正的檔案下載連結。
     /// 實際下載交給共用引擎（crate::dl），provider 只負責「連結在哪」。
     pub async fn resolve_file_url(
         &self,

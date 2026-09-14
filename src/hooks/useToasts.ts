@@ -1,4 +1,4 @@
-// 共用 toast 佇列 — BT 與直鏈的完成/加入通知都推這裡（App 層統一渲染）
+// 共用 toast 佇列 — 剪貼簿/拖曳/BT/直鏈的通知都推這裡（App 層統一渲染）
 
 import { useCallback, useState } from "react";
 

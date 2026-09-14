@@ -2,7 +2,7 @@
 // 日誌初始化 — 沒有 subscriber 的話全專案的 tracing::error!/warn! 都是丟進黑洞，
 // 出事時完全沒線索（monitor 抓取失敗、DB 錯誤、BT 啟動細節都只走 tracing）。
 //
-// 輸出兩路：app_data_dir/logs/app.log（每日輪替、保留 7 天）＋ stderr（dev 時看得到）。
+// 輸出兩路：app_data_dir/logs/app.YYYY-MM-DD.log（每日輪替、保留 7 天）＋ stderr（dev 時看得到）。
 // 預設過濾自家 crate info、其餘 warn — librqbit/hyper 的 debug 量大到會蓋掉自己的訊息。
 
 use std::path::Path;

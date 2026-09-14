@@ -13,7 +13,7 @@ pub struct BtSettings {
     /// 新任務預設下載目錄（空 = 系統下載資料夾）
     #[serde(alias = "default_download_dir")]
     pub default_dir: String,
-    /// 固定 BT 監聽 port。None = librqbit 預設 range 4240..4260
+    /// 固定 BT 監聽 port。None = 用 torrent/state.rs 指定的 range 4240..4260（同 rqbit CLI 預設）
     pub listen_port: Option<u16>,
     /// 全域上傳限速 bytes/s，0 = 不限
     #[serde(deserialize_with = "de_limit")]

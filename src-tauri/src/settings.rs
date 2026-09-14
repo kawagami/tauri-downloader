@@ -95,8 +95,8 @@ pub struct SettingsState {
 }
 
 impl SettingsState {
-    /// 載入 app_settings.json（含舊欄位遷移）；檔案不存在時從舊 bt_settings.json 遷移 bt 區塊。
-    /// 解析失敗不靜默吞掉：壞檔改名保留 + 記日誌（見 utils::jsonfile），再走預設值。
+    /// 讀 app_settings.json（含舊欄位遷移）。檔案不存在或解析失敗都回 None；
+    /// 解析失敗不靜默吞掉：壞檔改名保留 + 記日誌（見 utils::jsonfile）。
     fn read_file(path: &Path) -> Option<AppSettings> {
         let mut value: serde_json::Value = crate::utils::jsonfile::load_json(path)?;
         migrate_legacy(&mut value);
@@ -110,6 +110,7 @@ impl SettingsState {
         }
     }
 
+    /// `read_file` 回 None（首次啟動或壞檔）時走預設值，bt 區塊改從舊 bt_settings.json 遷移。
     pub fn load(app_data_dir: &Path) -> Self {
         let path = app_data_dir.join("app_settings.json");
         let settings = Self::read_file(&path).unwrap_or_else(|| AppSettings {

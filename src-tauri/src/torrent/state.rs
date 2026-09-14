@@ -35,7 +35,7 @@ pub struct TorrentState {
     pub pending_seq: AtomicU64,
 }
 
-/// BT 引擎外殼 — session 建立失敗（如 port 被舊 magnet-downloader 佔走）
+/// BT 引擎外殼 — session 建立失敗（如 port 被其他 BT 程式佔走、DHT port 落在 Windows 保留範圍）
 /// 只讓 BT 分頁失效，不拖垮整個 app。init 在背景跑，可 retry。
 #[derive(Default)]
 pub struct BtEngine {

@@ -114,7 +114,7 @@ impl DownloadManager {
 mod tests {
     use super::*;
 
-    /// 取樣間隔的兩倍，確保跨過 MIN_SAMPLE
+    /// 比 MIN_SAMPLE（500ms）多留 100ms 餘裕，確保每次都跨過取樣門檻
     const TICK: Duration = Duration::from_millis(600);
 
     #[test]

@@ -404,8 +404,8 @@
 </ul>
 
 <div class="callout danger">
-  <span class="label">本專案反例</span>
-  <p><code>AppState.download_cancelled</code> 是<strong>單一全域 AtomicBool</strong>（CLAUDE.md 已列為已知問題）。多個下載並行時，一個取消會誤殺全部 —— 這就是「共享可變狀態」擋住並行的典型。要並行得先改成 per-task 旗標。</p>
+  <span class="label">本專案反例（已修）</span>
+  <p><code>AppState.download_cancelled</code> 曾是<strong>單一全域 AtomicBool</strong>。多個下載並行時，一個取消會誤殺全部 —— 這就是「共享可變狀態」擋住並行的典型。後來改成 per-task 旗標（<code>AppState.cancels: HashMap&lt;url, Arc&lt;AtomicBool&gt;&gt;</code>）才解開。</p>
 </div>
 
 <h3>Q3 單位工作夠大嗎？</h3>
@@ -429,7 +429,7 @@
   <tbody>
     <tr><td>2. 序列基準線</td><td>1596ms</td></tr>
     <tr><td>3. 並行版（8 條）</td><td>280ms</td></tr>
-    <tr><td>4. 掃並行度找拐點</td><td>4 → 546ms　<strong>8 → 345ms</strong>　16 → 363ms</td></tr>
+    <tr><td>4. 掃並行度找拐點</td><td>4 → 546ms　<strong>8 → 345ms</strong>　16 → 363ms<br><span class="fn">（另一輪量測，8 條的絕對值與上一列的 280ms 有浮動 —— 看相對趨勢，不看單次數字）</span></td></tr>
   </tbody>
 </table>
 </div>
@@ -476,7 +476,7 @@
             s.<span class="f">spawn</span>(|| <span class="k">loop</span> {
                 <span class="k">let</span> i = next.<span class="f">fetch_add</span>(1, Ordering::Relaxed);   <span class="c">// 搶號碼牌</span>
                 <span class="k">if</span> i &gt;= items.<span class="f">len</span>() { <span class="k">break</span>; }
-                *slots[i].<span class="f">lock</span>().<span class="f">unwrap</span>() = <span class="k">Some</span>(<span class="f">f</span>(i, &amp;items[i])); <span class="c">// 寫回自己的格子</span>
+                *slots[i].<span class="f">lock_safe</span>() = <span class="k">Some</span>(<span class="f">f</span>(i, &amp;items[i])); <span class="c">// 寫回自己的格子(lock_safe:鎖中毒不 panic,見 utils/lock.rs)</span>
             });
         }
     });                                        <span class="c">// scope 結束 = 全部 join 完</span>
@@ -500,27 +500,44 @@
 <span class="k">let</span> active = <span class="f">AtomicUsize::new</span>(0);     <span class="c">// 正在處理中的數量 ← 關鍵</span>
 <span class="k">let</span> out = <span class="f">Mutex::new</span>(<span class="f">Vec::new</span>());
 
+<span class="c">// active 遞減交給 Drop:不論正常離開還是 panic,計數都會歸零</span>
+<span class="k">struct</span> <span class="f">ActiveGuard</span>&lt;'a&gt;(&amp;'a <span class="f">AtomicUsize</span>);
+<span class="k">impl</span> <span class="f">Drop</span> <span class="k">for</span> <span class="f">ActiveGuard</span>&lt;'_&gt; {
+    <span class="k">fn</span> <span class="f">drop</span>(&amp;<span class="k">mut</span> self) { self.0.<span class="f">fetch_sub</span>(1, Ordering::SeqCst); }
+}
+
 std::thread::<span class="f">scope</span>(|s| {
     <span class="k">for</span> _ <span class="k">in</span> 0..threads {
         s.<span class="f">spawn</span>(|| <span class="k">loop</span> {
-            <span class="k">let</span> dir = queue.<span class="f">lock</span>().<span class="f">unwrap</span>().<span class="f">pop</span>();
+            <span class="c">// <span class="hl">pop 與 active+1 在同一把鎖內完成</span></span>
+            <span class="k">let</span> dir = {
+                <span class="k">let</span> <span class="k">mut</span> q = queue.<span class="f">lock_safe</span>();
+                <span class="k">let</span> popped = q.<span class="f">pop</span>();
+                <span class="k">if</span> popped.<span class="f">is_some</span>() { active.<span class="f">fetch_add</span>(1, Ordering::SeqCst); }
+                popped
+            };
             <span class="k">let</span> <span class="k">Some</span>(dir) = dir <span class="k">else</span> {
                 <span class="c">// 佇列空 ≠ 做完!別人手上那筆可能還會吐出新子目錄</span>
                 <span class="k">if</span> active.<span class="f">load</span>(Ordering::SeqCst) == 0 { <span class="k">break</span>; }
-                std::thread::<span class="f">yield_now</span>();
+                std::thread::<span class="f">sleep</span>(Duration::<span class="f">from_micros</span>(200)); <span class="c">// 不用 yield_now 空轉</span>
                 <span class="k">continue</span>;
             };
-            active.<span class="f">fetch_add</span>(1, Ordering::SeqCst);
+            <span class="k">let</span> _active = <span class="f">ActiveGuard</span>(&amp;active); <span class="c">// 從這裡起不論怎麼離開都會 -1</span>
             <span class="c">// ... read_dir,子目錄 push 回 queue,檔案 push 到 out</span>
-            active.<span class="f">fetch_sub</span>(1, Ordering::SeqCst);
         });
     }
 });</code></pre>
 
 <div class="callout danger">
   <span class="label">最容易寫錯的地方</span>
-  <p><strong>終止條件</strong>。只看「佇列空了就結束」會提早收工：A 執行緒正在讀某目錄、還沒把子目錄放回佇列，此時 B 看到空佇列就跑掉 → 漏檔，而且是隨機漏，測試不一定抓得到。必須 <code>queue.is_empty() &amp;&amp; active == 0</code> 兩個條件同時成立。</p>
-  <p><code>active.fetch_add</code> <strong>必須在 pop 之後、放開判斷之前</strong>，順序錯了一樣有窗口。</p>
+  <p><strong>終止條件</strong>。只看「佇列空了就結束」會提早收工：A 執行緒正在讀某目錄、還沒把子目錄放回佇列，此時 B 看到空佇列就跑掉。必須 <code>queue.is_empty() &amp;&amp; active == 0</code> 兩個條件同時成立。</p>
+  <p><strong><code>pop</code> 與 <code>active += 1</code> 必須在同一把鎖內完成。</strong>先 pop、放鎖、再 <code>fetch_add</code> 的話，兩步之間別的執行緒會看到「佇列空 &amp;&amp; active == 0」而 break。不會漏檔（拿到那筆的執行緒還在跑、會把剩下的樹走完），但其他執行緒全部收工，最壞退化成單執行緒 —— 並行等於白做，而且結果完全正確、測試抓不到。本案第一版就是這樣寫的。</p>
+</div>
+
+<div class="callout warn">
+  <span class="label">另外兩個坑（本案都踩過）</span>
+  <p><strong>遞減要用 RAII guard。</strong>把 <code>fetch_sub</code> 手寫在迴圈尾端，中間一 panic 就被跳過，計數永遠不歸零 → 其他執行緒卡在「等 active == 0」出不來，整個 <code>scope</code> 一起 hang。</p>
+  <p><strong>等待別用 <code>yield_now()</code>。</strong>UNC 一次 <code>read_dir</code> 約 23ms，閒著的執行緒這整段都在空轉燒 CPU；睡 200µs 對延遲毫無影響。</p>
 </div>
 
 <p>這裡用 <code>SeqCst</code> 而非 <code>Relaxed</code>：終止判斷牽涉兩個變數（queue 狀態、active 值）的相對順序，需要強保證；純計數（進度回報）才可以用 <code>Relaxed</code>。</p>
@@ -533,7 +550,7 @@ std::thread::<span class="f">scope</span>(|s| {
 
 <h3>型態 C：async IO</h3>
 
-<p class="fn">本專案 http_dl 用的。程式已在 async runtime、工作是網路 IO 時，不要開執行緒。</p>
+<p class="fn">程式已在 async runtime、工作是網路 IO 時，不要開執行緒。本專案沒用這個骨架（<code>dl.rs</code> 的分段下載是 <code>JoinSet</code> + 固定數量的 worker，外加 work stealing），下面是網路 IO 最常見的通用寫法。</p>
 
 <pre><code><span class="k">use</span> futures_util::stream::{<span class="k">self</span>, StreamExt};
 
@@ -594,7 +611,7 @@ result</code></pre>
 <ul>
   <li><strong>順序即語意</strong> —— 例如 <code>reorder_tasks</code> 寫 sort_order，順序錯了資料就錯</li>
   <li><strong>對方不歡迎</strong> —— 爬站台並行等於變相攻擊，本專案網站下載刻意保持序列（還有限速 sleep）</li>
-  <li><strong>共享的單一旗標／連線</strong> —— 前述 <code>download_cancelled</code>，並行前得先重構</li>
+  <li><strong>共享的單一旗標／連線</strong> —— 前述 <code>download_cancelled</code>，並行前得先重構（本專案已改成 per-task 旗標）</li>
   <li><strong>省下來的時間人感覺不到</strong> —— 200ms → 40ms 沒人在乎，複雜度卻永久留著</li>
 </ul>
 

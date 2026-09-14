@@ -99,7 +99,7 @@ pub fn already_downloaded(dir: &Path, title: &str) -> bool {
         .unwrap_or(false)
 }
 
-/// 設定裡的下載目錄 → 實際路徑。三個分頁共用同一套語意：
+/// 設定裡的下載目錄 → 實際路徑。三個下載分頁（五處呼叫端）共用同一套語意：
 /// 空字串 = 系統下載資料夾，取不到時退回工作目錄。
 pub fn resolve_dir(configured: &str) -> PathBuf {
     let trimmed = configured.trim();

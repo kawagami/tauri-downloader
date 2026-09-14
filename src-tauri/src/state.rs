@@ -15,7 +15,8 @@ pub struct AppState {
     pub client: Client,
     pub monitor_running: Arc<AtomicBool>,
     pub monitor_paused: Arc<AtomicBool>,
-    /// 進行中的網站下載 → 各自的取消旗標（key = 任務 url）。
+    /// 進行中的網站下載 → 各自的取消旗標（key = `download_with_progress` 收到的 url，
+    /// 即下載頁連結 `download_page_href`，不是 DB 主鍵的作品頁 url）。
     /// 以前是單一全域 `AtomicBool`，一旦並行就會互相取消，所以 UI 得靠 disable
     /// 按鈕封住並行入口；改成 per-task 之後就沒有這個限制了。
     cancels: Mutex<HashMap<String, Arc<AtomicBool>>>,

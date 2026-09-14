@@ -61,7 +61,7 @@ pub fn validate(content: &str) -> Result<String, String> {
     ))
 }
 
-/// 輔助用函數
+/// 抓下載頁（`download_page_href`），解析出實際 ZIP 檔案連結
 pub async fn get_file_url(
     app_handle: &AppHandle,
     url: &str,
