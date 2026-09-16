@@ -63,7 +63,7 @@ impl RateLimiter {
             }
             let elapsed = now.duration_since(b.last).as_secs_f64();
             b.last = now;
-            // 補充配額，最多囤 1 秒份（避免閒置後爆量）
+            // 補充配額，最多攢 1 秒份（避免閒置後爆量）
             b.tokens = (b.tokens + elapsed * limit as f64).min(limit as f64);
             b.tokens -= bytes as f64;
             if b.tokens < 0.0 {

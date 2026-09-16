@@ -10,7 +10,7 @@ export interface HttpTaskItem {
   id: number;
   name: string;
   state: HttpTaskState;
-  progress_percent: number; // 0-100；total 未知時為 0
+  progress_percent: number; // 0-100；total 未知時跑動中為 0、完成為 100
   downloaded_bytes: number;
   total_bytes: number; // 0 = 未知
   down_speed_bps: number;

@@ -610,7 +610,7 @@ result</code></pre>
 
 <ul>
   <li><strong>順序即語意</strong> —— 例如 <code>reorder_tasks</code> 寫 sort_order，順序錯了資料就錯</li>
-  <li><strong>對方不歡迎</strong> —— 爬站台並行等於變相攻擊，本專案網站下載刻意保持序列（還有限速 sleep）</li>
+  <li><strong>對方不歡迎</strong> —— 爬站台並行等於變相攻擊，本專案網站下載刻意每筆只開一條連線、批次逐筆下載（限速可在設定開）</li>
   <li><strong>共享的單一旗標／連線</strong> —— 前述 <code>download_cancelled</code>，並行前得先重構（本專案已改成 per-task 旗標）</li>
   <li><strong>省下來的時間人感覺不到</strong> —— 200ms → 40ms 沒人在乎，複雜度卻永久留著</li>
 </ul>

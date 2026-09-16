@@ -378,7 +378,8 @@ impl HttpManager {
     }
 
     /// 啟動(或續跑)一個任務。狀態立即轉 Running;實際下載在背景 task。
-    /// 結束時:使用者主動停(stop 旗標)→ 不動狀態;否則寫 Finished / Error。
+    /// 結束時:使用者主動停(stop 旗標)→ 不動狀態;retryable 錯誤先自動重試
+    /// (上限 MAX_AUTO_RETRIES);否則寫 Finished / Error。
     pub fn spawn_run(self: &Arc<Self>, task: Arc<HttpTask>) {
         let stop = Arc::new(AtomicBool::new(false));
         *task.stop.lock_safe() = stop.clone();

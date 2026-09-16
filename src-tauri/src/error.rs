@@ -11,7 +11,8 @@ pub enum DownloadError {
     NotFound,
     /// 使用者取消下載
     Cancelled,
-    /// 其他暫時性錯誤（網路、IO、解析），可重試
+    /// 其他錯誤（網路、IO、解析、404/410 以外的 HTTP 狀態）— 前端標 error，可手動重試。
+    /// 不保證重試有用（例：重抓連結後仍 401/403、伺服器不再支援續傳）
     Other(String),
 }
 

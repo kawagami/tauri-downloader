@@ -216,7 +216,7 @@ fn steal_work(segments: &Mutex<Vec<Arc<Segment>>>) -> Option<Arc<Segment>> {
 
 /// 失敗分類 —— 呼叫端各自需要不同的分法：
 /// http 看 `retryable`（決定顯示「重試」還是「更新連結」），
-/// web 看 `kind == NotFound`（決定標 not_found 還是重抓 file_url）。
+/// web 看 `kind`（NotFound/Auth 先重抓 file_url 再跑一次，最後仍是 NotFound 才標 not_found）。
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum ErrorKind {
     /// 404 / 410 — 永久失效

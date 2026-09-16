@@ -23,7 +23,7 @@ const EMIT_INTERVAL: Duration = Duration::from_millis(250);
 ///（web 任務存在 SQLite，沒有 segments 欄位）。檔名鎖死 `{title}.zip`，
 /// 不讓 Content-Disposition 蓋掉——清單和「已下載過」判斷都靠它。
 ///
-/// `.part` 後綴摻來源 URL 的雜湊：同標題不同作品的兩個任務要是共用同一個
+/// `.part` 後綴摻 `url` 參數（下載頁連結 `download_page_href`）的雜湊：同標題不同作品的兩個任務要是共用同一個
 /// `.part`，後一個會把前一個暫停留下的半截檔當成自己的進度接下去（見 utils::fs）。
 fn web_job_config(url: &str) -> JobConfig {
     JobConfig {
