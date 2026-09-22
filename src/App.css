@@ -547,7 +547,7 @@ button:disabled {
   line-height: 1;
 }
 
-/* 全域控制項(監控剪貼簿、通知音量)— 兩個分頁都適用,放 tab bar 右側 */
+/* 全域控制項(監控剪貼簿、⚙ 設定、深色模式切換)— 四個分頁都適用,放 tab bar 右側 */
 .tab-bar-controls {
   margin-left: auto;
   display: flex;
@@ -557,7 +557,7 @@ button:disabled {
   font-size: 12px;
 }
 
-/* ---------- BT 磁力下載分頁 ---------- */
+/* ---------- BT 磁力下載分頁（卡片/工具列/錯誤橫幅也給直鏈與遊戲設定分頁共用） ---------- */
 
 .bt-toolbar {
   justify-content: space-between;

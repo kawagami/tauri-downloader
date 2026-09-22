@@ -46,7 +46,7 @@ export const useTaskManager = (): UseTaskManager => {
         }
     }, []);
 
-    // 🔹 1️⃣ 啟動時從 SQLite 載入所有任務
+    // 🔹 1️⃣ 啟動時預載 ding 音效（接 GainNode 才能調到 100% 以上），並從 SQLite 載入所有任務
     useEffect(() => {
         fetch('/ding.mp3')
             .then(r => r.blob())

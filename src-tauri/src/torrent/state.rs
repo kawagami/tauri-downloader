@@ -107,7 +107,8 @@ fn nz_u32(bps: u64) -> Option<NonZeroU32> {
     NonZeroU32::new(bps.min(u32::MAX as u64) as u32)
 }
 
-/// DHT 綁 port 失敗時的重試次數（每次 librqbit 會重挑一個隨機 port）
+/// 建 session 的總嘗試次數（含第一次）。綁 port 被拒時砍掉 dht.json，
+/// 下一次 librqbit 就會重挑一個隨機 port
 const DHT_BIND_ATTEMPTS: u32 = 4;
 
 /// librqbit 的 DHT 會把上次用的 UDP port 存進 dht.json 下次沿用。

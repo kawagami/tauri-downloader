@@ -47,7 +47,7 @@ pub fn run() {
             let db = init_db(app.handle())?;
             let state = AppState::new(db, Arc::clone(&monitor_running));
 
-            // HTTP 直鏈下載（獨立於 BT 引擎與網站下載）
+            // HTTP 直鏈下載（任務管理獨立於 BT 引擎與網站下載；位元組搬運與網站下載共用 crate::dl）
             let http_mgr =
                 http_dl::manager::HttpManager::load(app_data_dir.join("http_tasks.json"), s.http.limit_bps);
 

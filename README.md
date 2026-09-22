@@ -62,5 +62,5 @@ npx tsc --noEmit             # 前端型別檢查
 
 ## 其他文件
 
-- `CLAUDE.md` — 完整架構表、每個檔案的職責、已知問題與 TODO
+- `CLAUDE.md` — 完整架構表、每個檔案的職責、已知問題與 TODO（本機開發筆記，未納入版控）
 - `docs/parallel-rewrite-guide.html` — 「什麼時候該把序列改成並行、怎麼改」的自用指南

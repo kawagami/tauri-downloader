@@ -15,7 +15,7 @@ use crate::dl::{self, DownloadJob, JobConfig, Segment};
 use crate::torrent::commands::sanitize_folder_name;
 use crate::utils::{net::build_client, ratelimit::RateLimiter};
 
-/// 分段並行數(伺服器無連線數限制時 4 段)。
+/// 最多幾段並行（固定 4 段，不偵測伺服器的連線數限制；小檔或不支援 Range 時退回單段）。
 const SEGMENT_COUNT: u64 = 4;
 /// 小於此大小不分段,單一連線下載即可。
 const MIN_SPLIT_BYTES: u64 = 8 * 1024 * 1024;
