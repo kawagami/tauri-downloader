@@ -1,11 +1,15 @@
 // src/lib.rs
 
 use crate::utils::lock::RwLockExt;
-use std::sync::{
-    atomic::{AtomicBool, Ordering},
-    Arc,
+use std::{
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+    time::Duration,
 };
 use tauri::{Manager, WindowEvent};
+use tauri_plugin_window_state::StateFlags;
 
 use crate::{db::init_db, state::AppState};
 
@@ -24,12 +28,22 @@ pub mod state;
 pub mod torrent;
 pub mod utils;
 
+/// 關閉收尾已開始（CloseRequested 只處理第一次）
+static SHUTTING_DOWN: AtomicBool = AtomicBool::new(false);
+/// 背景收尾上限 — 正常約 1 秒（librqbit 寫死的 sleep）
+const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(5);
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let monitor_running = Arc::new(AtomicBool::new(true));
 
     tauri::Builder::default()
-        .plugin(tauri_plugin_window_state::Builder::default().build())
+        // 不記 VISIBLE：關閉時視窗先 hide 再背景收尾，exit 那一刻存下來的會是「隱藏」
+        .plugin(
+            tauri_plugin_window_state::Builder::default()
+                .with_state_flags(StateFlags::all() & !StateFlags::VISIBLE)
+                .build(),
+        )
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .setup(move |app| {
@@ -76,19 +90,35 @@ pub fn run() {
         })
         .on_window_event(|window, event| {
             match event {
-                WindowEvent::CloseRequested { .. } => {
-                    // 直鏈任務進度最後落地一次,重開時續傳才接得準
-                    if let Some(mgr) = window.try_state::<std::sync::Arc<http_dl::manager::HttpManager>>() {
-                        mgr.persist_now();
+                WindowEvent::CloseRequested { api, .. } => {
+                    // 收尾跑完後 app.exit() 可能再觸發一次 —— 第二次直接放行
+                    if SHUTTING_DOWN.swap(true, Ordering::SeqCst) {
+                        return;
                     }
-                    // 優雅關閉 BT session：暫停 torrents 讓 persistence flush 完再退出
-                    // 先 clone Arc 再 block_on，不在鎖裡等待
-                    let ts = window
-                        .try_state::<torrent::state::BtEngine>()
-                        .and_then(|e| e.inner.read_safe().clone());
-                    if let Some(ts) = ts {
-                        tauri::async_runtime::block_on(ts.session.stop());
-                    }
+                    // 收尾要 1 秒以上（librqbit 的 Session::stop() 寫死睡 1s 等 DHT/persistence
+                    // 收工），以前在主執行緒 block_on，視窗凍住等完才消失。
+                    // 改成先藏視窗、背景收尾、做完才 exit：收尾內容不變，只是使用者看不到。
+                    api.prevent_close();
+                    let _ = window.hide();
+                    let app = window.app_handle().clone();
+                    tauri::async_runtime::spawn(async move {
+                        // 直鏈任務進度最後落地一次,重開時續傳才接得準
+                        if let Some(mgr) = app.try_state::<Arc<http_dl::manager::HttpManager>>() {
+                            mgr.persist_now();
+                        }
+                        // 優雅關閉 BT session：暫停 torrents 讓 persistence flush 完再退出
+                        // 先 clone Arc 再 await，不在鎖裡等待
+                        let ts = app
+                            .try_state::<torrent::state::BtEngine>()
+                            .and_then(|e| e.inner.read_safe().clone());
+                        if let Some(ts) = ts {
+                            // 上限防呆：收尾卡住也不能讓程序永遠掛在背景
+                            if tokio::time::timeout(SHUTDOWN_TIMEOUT, ts.session.stop()).await.is_err() {
+                                tracing::warn!("BT session 關閉逾時 {:?}，直接退出", SHUTDOWN_TIMEOUT);
+                            }
+                        }
+                        app.exit(0);
+                    });
                 }
                 WindowEvent::Destroyed => {
                     if let Some(state) = window.try_state::<AppState>() {
