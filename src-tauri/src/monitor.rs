@@ -1,5 +1,4 @@
 use crate::utils::lock::LockExt;
-use crate::db;
 use crate::providers::Site;
 use crate::state::AppState;
 use clipboard::{ClipboardContext, ClipboardProvider};
@@ -110,31 +109,15 @@ pub fn start_clipboard_monitor(app_handle: AppHandle, running: Arc<AtomicBool>) 
                                 let url_to_fetch = normalized_url.clone();
                                 let recent_urls = Arc::clone(&recent_urls);
 
-                                // 使用 Tauri 內建的 runtime 執行異步抓取
+                                // 使用 Tauri 內建的 runtime 執行異步抓取；
+                                // 已下載過檢查、入庫、emit 都在共用的 ingest（與拖曳同一條路，合集也在裡面展開）
                                 tauri::async_runtime::spawn(async move {
-                                    match site.fetch_details(&handle, &url_to_fetch).await {
-                                        Ok(payload) => {
-                                            // 檢查下載目錄是否已有同名檔案（含 _N 後綴變體）；命名規則與
-                                            // get_unique_save_path 共用同一個函式，不再各寫一份。
-                                            // 目錄來源與實際下載一致：AppSettings.web.default_dir（空 = 系統下載夾）
-                                            let web_dir = crate::utils::fs::resolve_dir(
-                                                &handle
-                                                    .state::<crate::settings::SettingsState>()
-                                                    .get()
-                                                    .web
-                                                    .default_dir,
-                                            );
-                                            if crate::utils::fs::already_downloaded(&web_dir, &payload.title) {
-                                                tracing::info!("已下載過，略過: {}", payload.title);
-                                                return;
-                                            }
-
-                                            match db::insert_task(&handle, &payload) {
-                                                Ok(true) => {
-                                                    let _ = handle.emit("new-valid-url-payload", payload);
-                                                }
-                                                Ok(false) => {}
-                                                Err(e) => tracing::error!("DB Error: {:?}", e),
+                                    match crate::ingest::ingest(&handle, &site, &url_to_fetch, true).await {
+                                        Ok(summary) => {
+                                            // 合集有章節失敗：移出節流，讓使用者能立刻再複製一次補抓
+                                            //（已入庫的話會被略過，只會重抓失敗的）
+                                            if summary.failed > 0 {
+                                                recent_urls.lock_safe().remove(&url_to_fetch);
                                             }
                                         }
                                         Err(e) => {

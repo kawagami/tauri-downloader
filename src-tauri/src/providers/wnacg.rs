@@ -1,7 +1,11 @@
 // wnacg provider —— 只負責「爬」：驗證網址、抓元資料、解析出真正的檔案連結。
 // 實際下載走共用引擎 crate::dl（與直鏈下載同一套），這裡不再有自己的串流迴圈。
 
-use crate::{error::DownloadError, providers::ClipboardPayload, state::AppState};
+use crate::{
+    error::DownloadError,
+    providers::{ClipboardPayload, Fetched},
+    state::AppState,
+};
 
 use regex::Regex;
 use scraper::{ElementRef, Html, Selector};
@@ -55,10 +59,43 @@ pub fn validate(content: &str) -> Result<String, String> {
 
     // 由 ID 重建規範化 URL：丟掉 query/fragment、主機統一，
     // 同一部作品的各種寫法都收斂成同一個 DB 主鍵
-    Ok(format!(
-        "https://{}/photos-index-aid-{}.html",
-        CANONICAL_HOST, id
-    ))
+    Ok(work_url(id))
+}
+
+/// 由 aid 組出規範化的作品頁 URL（validate 與合集章節展開共用）
+fn work_url(aid: impl std::fmt::Display) -> String {
+    format!("https://{}/photos-index-aid-{}.html", CANONICAL_HOST, aid)
+}
+
+/// 從規範化作品頁 URL 取回 aid
+fn aid_of(url: &str) -> Option<String> {
+    let parsed = Url::parse(url).ok()?;
+    let re = RE_VALIDATE.get_or_init(|| Regex::new(r"^/photos-index-aid-(\d+)\.html$").unwrap());
+    re.captures(parsed.path()).map(|c| c[1].to_string())
+}
+
+/// GET 一頁文字內容；404/410 → NotFound，其他非 2xx → Other
+async fn get_text(client: &reqwest::Client, url: &str) -> Result<String, DownloadError> {
+    let res = client.get(url).send().await?;
+
+    if matches!(res.status(), reqwest::StatusCode::NOT_FOUND | reqwest::StatusCode::GONE) {
+        return Err(DownloadError::NotFound);
+    }
+    if !res.status().is_success() {
+        return Err(DownloadError::Other(format!("網絡請求失敗，狀態碼: {}", res.status())));
+    }
+    Ok(res.text().await?)
+}
+
+/// 站內相對連結補成絕對網址
+fn absolutize(raw: &str) -> String {
+    if raw.starts_with("http") {
+        raw.to_string()
+    } else if raw.starts_with("//") {
+        format!("https:{}", raw)
+    } else {
+        format!("https://www.wnacg.com{}", raw)
+    }
 }
 
 /// 抓下載頁（`download_page_href`），解析出實際 ZIP 檔案連結
@@ -68,34 +105,15 @@ pub async fn get_file_url(
 ) -> Result<String, DownloadError> {
     tracing::debug!("get_file_url: {}", url);
 
-    // 取 state 中的 client 執行 reqwest get 請求
     let state = app_handle.state::<AppState>();
-    let client = &state.client;
-    let res = client.get(url).send().await?;
-
-    if matches!(res.status(), reqwest::StatusCode::NOT_FOUND | reqwest::StatusCode::GONE) {
-        return Err(DownloadError::NotFound);
-    }
-    if !res.status().is_success() {
-        return Err(DownloadError::Other(format!("網絡請求失敗，狀態碼: {}", res.status())));
-    }
-
-    let html_content = res.text().await?;
+    let html_content = get_text(&state.client, url).await?;
     let document = Html::parse_document(&html_content);
 
     let raw = select_first(&document, &["#ads > a", "a.ads", "a[href*='down']"])
         .and_then(|el| el.value().attr("href"))
         .ok_or_else(|| DownloadError::Other("wnacg: 無法找到下載連結".to_string()))?;
 
-    let href = if raw.starts_with("http") {
-        raw.to_string()
-    } else if raw.starts_with("//") {
-        format!("https:{}", raw)
-    } else {
-        format!("https://www.wnacg.com{}", raw)
-    };
-
-    Ok(href)
+    Ok(absolutize(raw))
 }
 
 /// Range 探測：對實際 ZIP 連結發 `Range: bytes=0-0`，驗證能否真的取到 bytes
@@ -138,58 +156,163 @@ async fn probe_file_size(
     Err(DownloadError::Other(format!("探測失敗，狀態碼: {}", status)))
 }
 
-pub async fn fetch_payload_details(
-    app_handle: &AppHandle,
-    url: String,
-) -> Result<ClipboardPayload, DownloadError> {
-    tracing::info!("fetch_payload_details: {}", url);
+/// 作品頁解析結果（解析是同步的，Html 非 Send，不能跨 await）
+enum Page {
+    Work {
+        title: String,
+        image: String,
+        download_page_href: String,
+    },
+    /// 合集：本身沒有檔案也沒有下載鈕，只列章節；`sid` 是合集自己的 aid
+    Series { title: String, sid: Option<String> },
+}
 
-    // 取 state 中的 client 執行 reqwest get 請求
+fn parse_page(document: &Html) -> Result<Page, DownloadError> {
+    let title = select_first(document, &["#bodywrap > h2", "#bodywrap h2", "h1", "h2"])
+        .map(|el| el.text().collect::<String>().trim().to_string())
+        .unwrap_or_else(|| "無法找到標題".to_string());
+
+    // 合集偵測要在找下載鈕之前：合集頁沒有 #ads，照一般作品解析只會得到「找不到下載頁面連結」。
+    // 認章節目錄這塊（#sr_pub / .sr_compact 的章節連結），不看標題的「1-5」之類字樣
+    if select_first(document, &["#sr_pub", ".sr_compact a[data-chid]"]).is_some() {
+        let sid = select_first(document, &["#sr_pub[data-aid]"])
+            .and_then(|el| el.value().attr("data-aid"))
+            .filter(|s| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit()))
+            .map(|s| s.to_string());
+        return Ok(Page::Series { title, sid });
+    }
+
+    let image = select_first(document, &[
+        "#bodywrap .pic_box img",
+        ".pic_box img",
+        ".grid img",
+    ])
+    .and_then(|el| el.value().attr("src"))
+    .map(|s| s.to_string())
+    .unwrap_or_else(|| "placeholder.png".to_string());
+
+    let download_page_href = select_first(document, &["#ads > a", "a.ads", "a[href*='down']"])
+        .and_then(|el| el.value().attr("href"))
+        .map(absolutize)
+        .ok_or_else(|| DownloadError::Other("wnacg: 無法找到下載頁面連結".to_string()))?;
+
+    Ok(Page::Work { title, image, download_page_href })
+}
+
+/// 合集章節清單 API —— 站方下載頁捲動載入用的同一支，回 JSON：
+/// `{code:0, total, page, limit, list:[{id, idx, name, pages, key, dl2}]}`，一頁 `limit` 話（目前 30）
+const CHAPTERS_API: &str = "https://www.wnacg.com/?ctl=download&act=chapters";
+/// 翻頁上限 —— API 回的 total/limit 不合理時不至於無限翻
+const MAX_CHAPTER_PAGES: u64 = 50;
+
+#[derive(serde::Deserialize)]
+struct ChapterPage {
+    code: i64,
+    #[serde(default)]
+    total: u64,
+    #[serde(default)]
+    limit: u64,
+    #[serde(default)]
+    list: Vec<ChapterItem>,
+}
+
+#[derive(serde::Deserialize)]
+struct ChapterItem {
+    /// 該話本身就是一部普通作品，這是它的 aid
+    id: u64,
+    /// 第幾話
+    #[serde(default)]
+    idx: u64,
+}
+
+fn parse_chapter_page(body: &str) -> Result<ChapterPage, DownloadError> {
+    let page: ChapterPage = serde_json::from_str(body)
+        .map_err(|e| DownloadError::Other(format!("wnacg: 章節清單格式錯誤: {}", e)))?;
+    if page.code != 0 {
+        return Err(DownloadError::Other(format!("wnacg: 章節清單回傳錯誤 code={}", page.code)));
+    }
+    Ok(page)
+}
+
+/// 依話數排序、去重，轉成各話的規範化作品頁 URL。
+/// 不信任回傳順序：站方有「倒序」偏好（sr_pref cookie），伺服器可能照偏好排
+fn chapter_urls(mut items: Vec<ChapterItem>) -> Vec<String> {
+    items.sort_by_key(|c| c.idx);
+    let mut seen = std::collections::HashSet::new();
+    items
+        .into_iter()
+        .filter(|c| seen.insert(c.id))
+        .map(|c| work_url(c.id))
+        .collect()
+}
+
+/// 把章節清單整份翻完。HTML 上的章節目錄同樣有分頁，只解析 HTML 超過一頁就會漏話
+async fn fetch_chapter_urls(
+    client: &reqwest::Client,
+    sid: &str,
+) -> Result<Vec<String>, DownloadError> {
+    let mut items = Vec::new();
+    let mut total = 0;
+    for page in 1..=MAX_CHAPTER_PAGES {
+        if page > 1 {
+            tokio::time::sleep(crate::providers::SERIES_REQUEST_GAP).await;
+        }
+        let body = get_text(client, &format!("{}&sid={}&page={}", CHAPTERS_API, sid, page)).await?;
+        let resp = parse_chapter_page(&body)?;
+        total = resp.total;
+        let got = resp.list.len();
+        items.extend(resp.list);
+        if got == 0 || page * resp.limit.max(1) >= resp.total {
+            break;
+        }
+    }
+    if (items.len() as u64) < total {
+        tracing::warn!("wnacg: 合集 {} 章節清單不完整（{}/{}）", sid, items.len(), total);
+    }
+    Ok(chapter_urls(items))
+}
+
+/// 抓作品頁：一般作品 → 一筆任務（順帶預取 ZIP 連結與大小）；合集 → 各話的作品頁 URL
+pub async fn fetch(app_handle: &AppHandle, url: String) -> Result<Fetched, DownloadError> {
+    tracing::info!("wnacg fetch: {}", url);
+
     let state = app_handle.state::<AppState>();
     let client = &state.client;
-    let res = client.get(&url).send().await?;
-
-    if matches!(res.status(), reqwest::StatusCode::NOT_FOUND | reqwest::StatusCode::GONE) {
-        return Err(DownloadError::NotFound);
-    }
-    if !res.status().is_success() {
-        return Err(DownloadError::Other(format!("網絡請求失敗，狀態碼: {}", res.status())));
-    }
-
-    let html_content = res.text().await?;
+    let html_content = get_text(client, &url).await?;
 
     // 用 block 確保 Html（非 Send）在 await 前 drop
-    let (title, image, download_page_href) = {
+    let page = {
         let document = Html::parse_document(&html_content);
+        parse_page(&document)?
+    };
 
-        let title = select_first(&document, &["#bodywrap > h2", "#bodywrap h2", "h1", "h2"])
-            .map(|el| el.text().collect::<String>().trim().to_string())
-            .unwrap_or_else(|| "無法找到標題".to_string());
+    match page {
+        Page::Series { title, sid } => {
+            let sid = sid
+                .or_else(|| aid_of(&url))
+                .ok_or_else(|| DownloadError::Other("wnacg: 無法取得合集編號".to_string()))?;
+            let chapters = fetch_chapter_urls(client, &sid).await?;
+            if chapters.is_empty() {
+                return Err(DownloadError::Other(format!("wnacg: 合集《{}》沒有任何章節", title)));
+            }
+            tracing::info!("wnacg: 合集《{}》共 {} 話", title, chapters.len());
+            Ok(Fetched::Series { title, chapters })
+        }
+        Page::Work { title, image, download_page_href } => Ok(Fetched::Work(
+            build_work_payload(app_handle, client, url, title, image, download_page_href).await,
+        )),
+    }
+}
 
-        let image = select_first(&document, &[
-            "#bodywrap .pic_box img",
-            ".pic_box img",
-            ".grid img",
-        ])
-        .and_then(|el| el.value().attr("src"))
-        .map(|s| s.to_string())
-        .unwrap_or_else(|| "placeholder.png".to_string());
-
-        let download_page_href_raw = select_first(&document, &["#ads > a", "a.ads", "a[href*='down']"])
-            .and_then(|el| el.value().attr("href"))
-            .ok_or_else(|| DownloadError::Other("wnacg: 無法找到下載頁面連結".to_string()))?;
-
-        let download_page_href = if download_page_href_raw.starts_with("http") {
-            download_page_href_raw.to_string()
-        } else if download_page_href_raw.starts_with("//") {
-            format!("https:{}", download_page_href_raw)
-        } else {
-            format!("https://www.wnacg.com{}", download_page_href_raw)
-        };
-
-        (title, image, download_page_href)
-    }; // document 在此 drop，之後才 await
-
+/// 一般作品：預取 ZIP 連結 + Range 探測，組成 ClipboardPayload
+async fn build_work_payload(
+    app_handle: &AppHandle,
+    client: &reqwest::Client,
+    url: String,
+    title: String,
+    image: String,
+    download_page_href: String,
+) -> ClipboardPayload {
     // 順帶抓實際 ZIP URL，快取進 DB 省掉下載時的額外請求；失敗不中斷
     let file_url = get_file_url(app_handle, &download_page_href)
         .await
@@ -199,18 +322,18 @@ pub async fn fetch_payload_details(
     let mut file_size: i64 = -1;
     let mut db_status = "idle".to_string();
     if file_url.is_empty() {
-        tracing::warn!("fetch_payload_details: 無法預取 file_url，下載時將重新抓取");
+        tracing::warn!("wnacg: 無法預取 file_url，下載時將重新抓取");
     } else {
         match probe_file_size(client, &file_url).await {
             Ok(size) => file_size = size,
             Err(DownloadError::NotFound) => {
                 // 預檢就確定 ZIP 連結已失效，直接標 not_found
-                tracing::warn!("fetch_payload_details: ZIP 連結預檢 404/410: {}", file_url);
+                tracing::warn!("wnacg: ZIP 連結預檢 404/410: {}", file_url);
                 db_status = "not_found".to_string();
             }
             Err(e) => {
                 // 暫時性失敗，大小未知，仍以 idle 加入、下載時再試
-                tracing::warn!("fetch_payload_details: 大小探測失敗（{}），標為未知", e);
+                tracing::warn!("wnacg: 大小探測失敗（{}），標為未知", e);
             }
         }
     }
@@ -220,7 +343,7 @@ pub async fn fetch_payload_details(
         .map(|d| d.as_secs() as i64)
         .unwrap_or(0);
 
-    Ok(ClipboardPayload {
+    ClipboardPayload {
         url,
         title,
         image,
@@ -229,7 +352,7 @@ pub async fn fetch_payload_details(
         file_size,
         created_at,
         db_status,
-    })
+    }
 }
 
 #[cfg(test)]
@@ -258,6 +381,62 @@ mod tests {
         let bare = "https://wnacg.com/photos-index-aid-123.html";
         assert!(crate::providers::Site::from_url(bare).is_ok());
         assert!(validate(bare).is_ok());
+    }
+
+    /// 合集頁（實際頁面節錄）：沒有 #ads，要認成 Series 而不是「找不到下載頁面連結」
+    #[test]
+    fn detects_series_page() {
+        let html = r#"<div id="bodywrap" class="userwrap"><h2>[abgrund] おにいちゃんコントローラー 1-5</h2>
+            <label>章節：5 話</label></div>
+            <div id="bodywrap" class="cc">
+              <div class="cc filter sr_filter" id="sr_pub" data-order="asc" data-mode="list" data-aid="390942"></div>
+              <div class="sr_compact">
+                <a class="tagshow" data-chid="34913" href="/photos-slide-aid-34913-sid-390942.html">第1話</a>
+              </div>
+            </div>"#;
+        match parse_page(&Html::parse_document(html)).ok() {
+            Some(Page::Series { title, sid }) => {
+                assert_eq!(title, "[abgrund] おにいちゃんコントローラー 1-5");
+                assert_eq!(sid.as_deref(), Some("390942"));
+            }
+            _ => panic!("應該認成合集"),
+        }
+    }
+
+    #[test]
+    fn parses_work_page() {
+        let html = r#"<div id="bodywrap" class="userwrap"><h2>作品</h2>
+            <div id="ads" class="ads"><a class="btn" href="/download-index-aid-390908.html">下載漫畫</a></div></div>"#;
+        match parse_page(&Html::parse_document(html)).ok() {
+            Some(Page::Work { title, download_page_href, .. }) => {
+                assert_eq!(title, "作品");
+                assert_eq!(download_page_href, "https://www.wnacg.com/download-index-aid-390908.html");
+            }
+            _ => panic!("應該認成一般作品"),
+        }
+    }
+
+    /// 章節 API 回應（實際格式）：依 idx 排序、去重，轉成各話規範化作品頁 URL
+    #[test]
+    fn chapter_list_sorted_and_deduped() {
+        let body = r#"{"code":0,"total":3,"page":1,"limit":30,"list":[
+            {"id":73321,"idx":3,"name":"c","pages":19,"key":"k","dl2":"//x"},
+            {"id":34913,"idx":1,"name":"a","pages":20,"key":"k","dl2":"//x"},
+            {"id":30698,"idx":2,"name":"b","pages":53,"key":"k","dl2":"//x"},
+            {"id":34913,"idx":1,"name":"a","pages":20,"key":"k","dl2":"//x"}]}"#;
+        let Ok(page) = parse_chapter_page(body) else { panic!("應可解析") };
+        assert_eq!(page.total, 3);
+        assert_eq!(
+            chapter_urls(page.list),
+            vec![work_url(34913), work_url(30698), work_url(73321)]
+        );
+        assert!(validate(&work_url(34913)).is_ok());
+    }
+
+    #[test]
+    fn chapter_list_error_code_is_err() {
+        assert!(parse_chapter_page(r#"{"code":1,"msg":"bad"}"#).is_err());
+        assert!(parse_chapter_page("<html>503</html>").is_err());
     }
 
     #[test]

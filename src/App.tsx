@@ -8,6 +8,7 @@ import { getPref, setPref, PREF_KEYS, migrateLegacyPrefs } from './lib/uiPrefs';
 import { useTaskManager } from './hooks/useTaskManager';
 import { useClipboardMonitor } from './hooks/useClipboardMonitor';
 import { useUrlDrop } from './hooks/useUrlDrop';
+import { useTaskEvents } from './hooks/useTaskEvents';
 import { useDownloadTasks } from './hooks/useDownloadTasks';
 import { useToasts } from './hooks/useToasts';
 import { useTorrentStats } from './hooks/useTorrentStats';
@@ -34,8 +35,9 @@ function App() {
   const { tasks, addTask, removeTask, removeAllTasks, volume, setVolume, playDing } = useTaskManager();
   // toast 佇列要先建立：剪貼簿/拖曳/BT/直鏈的通知全推同一條
   const { toasts, pushToast } = useToasts();
-  const { monitorClipboard, setMonitorClipboard } = useClipboardMonitor(addTask, tasks, pushToast);
-  const { isDragging, onDragEnter, onDragOver, onDragLeave, onDrop } = useUrlDrop(addTask, pushToast, playDing);
+  useTaskEvents(addTask, pushToast, playDing);
+  const { monitorClipboard, setMonitorClipboard } = useClipboardMonitor();
+  const { isDragging, onDragEnter, onDragOver, onDragLeave, onDrop } = useUrlDrop(pushToast, playDing);
   const {
     tasks: downloadTasks,
     handleDownload,

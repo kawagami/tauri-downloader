@@ -60,6 +60,17 @@ pub fn insert_task(app_handle: &AppHandle, payload: &ClipboardPayload) -> Result
     Ok(affected > 0)
 }
 
+/// 任務是否已在清單裡（合集展開時先查，已有的話不必再打站台）
+pub fn task_exists(app_handle: &AppHandle, url: &str) -> Result<bool> {
+    let state = app_handle.state::<AppState>();
+    let conn = state.db.lock_safe();
+    conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM tasks WHERE url = ?1)",
+        params![url],
+        |row| row.get(0),
+    )
+}
+
 /// 取得所有任務資料
 pub fn get_all_tasks(app_handle: &AppHandle) -> Result<Vec<ClipboardPayload>> {
     let state = app_handle.state::<AppState>();

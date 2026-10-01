@@ -5,7 +5,7 @@ import { getPref, setPref, PREF_KEYS } from '../lib/uiPrefs';
 
 export interface UseTaskManager {
     tasks: Task[];
-    addTask: (payload: ClipboardPayload) => Promise<void>;
+    addTask: (payload: ClipboardPayload, opts?: { silent?: boolean }) => Promise<void>;
     removeTask: (url: string) => Promise<void>;
     removeAllTasks: () => Promise<void>;
     reloadTasks: () => Promise<void>;
@@ -80,13 +80,14 @@ export const useTaskManager = (): UseTaskManager => {
     }, []);
 
     // 🔹 2️⃣ 新增任務函數（stable reference，不依賴 tasks）
-    const addTask = useCallback(async (payload: ClipboardPayload) => {
+    // silent：合集逐話加入時不叮，整批結束由 useTaskEvents 叮一次
+    const addTask = useCallback(async (payload: ClipboardPayload, opts?: { silent?: boolean }) => {
         if (tasksRef.current.some(task => task.url === payload.url)) {
             return;
         }
 
         setTasks(prev => [...prev, payload]);
-        playDing();
+        if (!opts?.silent) playDing();
     }, [playDing]);
 
     const removeTask = useCallback(async (url: string) => {

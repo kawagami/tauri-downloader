@@ -25,3 +25,18 @@ export interface DownloadableTask extends Task {
  * 以前是兩份逐字相同的 interface，改欄位得記得改兩邊。別名讓它們不可能漂掉。
  */
 export type ClipboardPayload = Task;
+
+/** 後端 `ingest::IngestSummary` — 一次加入（剪貼簿/拖曳）的統計；合集才有 series_title */
+export interface IngestSummary {
+    series_title: string | null;
+    added: number;
+    existed: number;   // 清單裡已經有了
+    skipped: number;   // 下載目錄已有同名檔（只有剪貼簿監控會檢查）
+    failed: number;    // 合集個別章節抓取失敗
+}
+
+/** `series-start` 事件 */
+export interface SeriesStartEvent {
+    title: string;
+    total: number;
+}

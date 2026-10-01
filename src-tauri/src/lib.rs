@@ -19,6 +19,7 @@ pub mod error;
 pub mod dl;
 pub mod download_core;
 pub mod http_dl;
+pub mod ingest;
 pub mod jin;
 pub mod logging;
 pub mod monitor;

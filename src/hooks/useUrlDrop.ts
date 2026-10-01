@@ -2,10 +2,8 @@
 
 import { useState, useCallback, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { ClipboardPayload } from '../types';
+import { IngestSummary } from '../types';
 import { addMagnet } from '../lib/btApi';
-
-type AddTaskFunction = (payload: ClipboardPayload) => Promise<void>;
 
 interface UseUrlDrop {
     isDragging: boolean;
@@ -18,14 +16,14 @@ interface UseUrlDrop {
 /**
  * useUrlDrop
  * - 接收從瀏覽器拖入的連結（HTML5 DnD，需 tauri.conf.json dragDropEnabled:false）
- * - 站台 URL → add_url_manually（複用剪貼簿同一條後端 pipeline）→ addTask
+ * - 站台 URL → add_url_manually（與剪貼簿共用後端 ingest）；任務經事件進清單（useTaskEvents），
+ *   合集在後端展開成每話一筆
  * - magnet 連結 → add_magnet（BT 分頁），與剪貼簿監控行為一致
  * - 獨立於剪貼簿監控開關
  * - 通知走共用 toast 佇列：同一件事（如「磁力任務已存在」）從剪貼簿或拖曳進來
  *   以前會長成兩種樣子（toast vs 專屬橫幅），現在一致
  */
 export const useUrlDrop = (
-    addTask: AddTaskFunction,
     pushToast: (text: string) => void,
     onMagnetAdded?: () => void,
 ): UseUrlDrop => {
@@ -79,12 +77,15 @@ export const useUrlDrop = (
                 }
                 return;
             }
-            const payload = await invoke<ClipboardPayload>('add_url_manually', { url });
-            await addTask(payload);
+            const summary = await invoke<IngestSummary>('add_url_manually', { url });
+            // 合集的統計由 series-done 事件出 toast；一般作品重複加入要給回饋，不然看起來像沒反應
+            if (!summary.series_title && summary.added === 0 && summary.existed > 0) {
+                pushToast('任務已存在');
+            }
         } catch (err) {
             pushToast(String(err));
         }
-    }, [addTask, pushToast, onMagnetAdded]);
+    }, [pushToast, onMagnetAdded]);
 
     return { isDragging, onDragEnter, onDragOver, onDragLeave, onDrop };
 };

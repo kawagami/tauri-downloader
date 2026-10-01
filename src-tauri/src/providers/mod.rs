@@ -25,6 +25,18 @@ pub struct ClipboardPayload {
     pub db_status: String,
 }
 
+/// 作品頁抓取結果
+pub enum Fetched {
+    /// 一般作品 = 一筆任務
+    Work(ClipboardPayload),
+    /// 合集：本身沒有檔案，每一話都是一部普通作品。`chapters` 是各話的規範化作品頁 URL（依話數排序）
+    Series { title: String, chapters: Vec<String> },
+}
+
+/// 合集展開時，對站台每個請求之間的間隔。逐話抓取本來就是一次一個（併發 1），
+/// 這裡再多留一點空檔 —— wnacg 很容易 503，連續打幾十個請求等於自找麻煩
+pub(crate) const SERIES_REQUEST_GAP: std::time::Duration = std::time::Duration::from_millis(500);
+
 #[derive(Serialize, Clone)]
 pub struct DownloadProgress {
     pub url: String,
@@ -68,14 +80,15 @@ impl Site {
         }
     }
 
-    /// 抓作品頁（標題/封面/下載頁連結），再順帶預取下載頁上的檔案連結與大小，組成 ClipboardPayload
+    /// 抓作品頁（標題/封面/下載頁連結），再順帶預取下載頁上的檔案連結與大小，組成 ClipboardPayload。
+    /// 合集頁回 `Fetched::Series`（各話 URL），逐話入庫由 `crate::ingest` 負責
     pub async fn fetch_details(
         &self,
         handle: &AppHandle,
         url: &str,
-    ) -> Result<ClipboardPayload, String> {
+    ) -> Result<Fetched, String> {
         match self {
-            Site::Wnacg => wnacg::fetch_payload_details(handle, url.to_string())
+            Site::Wnacg => wnacg::fetch(handle, url.to_string())
                 .await
                 .map_err(|e| e.to_string()),
             Site::NHentai => Err("NHentai fetch 尚未實作".to_string()),
