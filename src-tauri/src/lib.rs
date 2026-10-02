@@ -39,6 +39,19 @@ pub fn run() {
     let monitor_running = Arc::new(AtomicBool::new(true));
 
     tauri::Builder::default()
+        // 必須是第一個 plugin：第二個實例在任何初始化前就退出，避免兩份剪貼簿監控、
+        // 同寫 tasks.db / http_tasks.json / 同一個 .part、搶 bt-session。
+        // 改把舊視窗叫到前景；舊實例正在關閉收尾（視窗已 hide）就不 show，免得閃一下又消失
+        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+            if SHUTTING_DOWN.load(Ordering::SeqCst) {
+                return;
+            }
+            if let Some(w) = app.get_webview_window("main") {
+                let _ = w.show();
+                let _ = w.unminimize();
+                let _ = w.set_focus();
+            }
+        }))
         // 不記 VISIBLE：關閉時視窗先 hide 再背景收尾，exit 那一刻存下來的會是「隱藏」
         .plugin(
             tauri_plugin_window_state::Builder::default()
